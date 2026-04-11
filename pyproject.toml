@@ -57,7 +57,6 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
-    "playwright>=1.49.0",             # E2E HTML/HTMX tests
     # Lint / format / types
     "ruff>=0.8.0",
     "mypy>=1.13.0",
@@ -66,6 +65,11 @@ dev = [
     "bandit>=1.8.0",
     # Pre-commit
     "pre-commit>=4.0.0",
+]
+# E2E tests need playwright + browser binaries, run on host (not in alpine container).
+# Install with: uv sync --extra dev --extra e2e && uv run playwright install chromium
+e2e = [
+    "playwright>=1.49.0",
 ]
 
 [project.scripts]
