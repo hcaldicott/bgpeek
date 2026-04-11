@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bgpeek
+      POSTGRES_USER: bgpeek
+      POSTGRES_PASSWORD: bgpeek
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bgpeek"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  bgpeek:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BGPEEK_HOST: "0.0.0.0"
+      BGPEEK_PORT: "8000"
+      BGPEEK_DATABASE_URL: "postgresql://bgpeek:bgpeek@postgres:5432/bgpeek"
+      BGPEEK_REDIS_URL: "redis://redis:6379/0"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

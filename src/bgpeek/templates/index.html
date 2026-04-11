@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}bgpeek &middot; looking glass{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+    <h1 class="text-xl font-semibold mb-4">Network query</h1>
+
+    <form hx-post="/query"
+          hx-target="#result"
+          hx-indicator="#spinner"
+          class="space-y-4">
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Location</span>
+                <select name="location"
+                        class="mt-1 w-full rounded border-slate-300 focus:border-slate-500 focus:ring-slate-500">
+                    <option value="">— select PoP —</option>
+                </select>
+            </label>
+
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Query type</span>
+                <select name="query_type"
+                        class="mt-1 w-full rounded border-slate-300 focus:border-slate-500 focus:ring-slate-500">
+                    <option value="bgp_route">BGP route</option>
+                    <option value="ping">Ping</option>
+                    <option value="traceroute">Traceroute</option>
+                </select>
+            </label>
+
+            <label class="block">
+                <span class="text-sm font-medium text-slate-700">Target</span>
+                <input type="text"
+                       name="target"
+                       placeholder="8.8.8.0/24"
+                       class="mt-1 w-full rounded border-slate-300 focus:border-slate-500 focus:ring-slate-500">
+            </label>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button type="submit"
+                    class="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 focus:ring-2 focus:ring-slate-500">
+                Run query
+            </button>
+            <span id="spinner" class="htmx-indicator text-sm text-slate-500">running…</span>
+        </div>
+    </form>
+</div>
+
+<div id="result" class="mt-6"></div>
+{% endblock %}
