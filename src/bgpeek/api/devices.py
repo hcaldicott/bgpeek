@@ -11,6 +11,7 @@ from bgpeek.db import devices as crud
 from bgpeek.db.pool import get_pool
 from bgpeek.models.device import Device, DeviceCreate, DeviceUpdate
 from bgpeek.models.user import User, UserRole
+from bgpeek.models.webhook import WebhookEvent
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -45,11 +46,19 @@ async def create_device(
 ) -> Device:
     """Create a new device."""
     try:
-        return await crud.create_device(get_pool(), payload)
+        device = await crud.create_device(get_pool(), payload)
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail=f"device with name {payload.name!r} already exists"
         ) from exc
+
+    from bgpeek.core.webhooks import dispatch_webhook
+
+    await dispatch_webhook(
+        WebhookEvent.DEVICE_CREATE,
+        {"device_id": device.id, "device_name": device.name},
+    )
+    return device
 
 
 @router.patch("/{device_id}", response_model=Device)
@@ -63,6 +72,13 @@ async def update_device(
     if device is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     await invalidate_device(device.name)
+
+    from bgpeek.core.webhooks import dispatch_webhook
+
+    await dispatch_webhook(
+        WebhookEvent.DEVICE_UPDATE,
+        {"device_id": device.id, "device_name": device.name},
+    )
     return device
 
 
@@ -79,3 +95,10 @@ async def delete_device(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     if device is not None:
         await invalidate_device(device.name)
+
+    from bgpeek.core.webhooks import dispatch_webhook
+
+    await dispatch_webhook(
+        WebhookEvent.DEVICE_DELETE,
+        {"device_id": device_id, "device_name": device.name if device else None},
+    )

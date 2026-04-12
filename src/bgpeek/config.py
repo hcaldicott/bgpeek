@@ -43,6 +43,22 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
+    # --- OIDC ---
+    oidc_enabled: bool = False
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_server_url: str = ""  # e.g. "https://keycloak.example.com/realms/bgpeek"
+    oidc_discovery_url: str = (
+        ""  # auto-derived if empty: {server_url}/.well-known/openid-configuration
+    )
+    oidc_scopes: str = "openid email profile"
+    oidc_role_claim: str = "realm_access.roles"  # JWT claim path for roles
+    oidc_role_mapping: str = ""  # JSON: {"bgpeek-admin": "admin", "bgpeek-noc": "noc"}
+    oidc_default_role: str = "public"
+
+    # --- Session ---
+    session_secret: str = "change-me-session-secret"  # noqa: S105
+
     # --- LDAP ---
     ldap_enabled: bool = False
     ldap_server: str = ""  # e.g. "ldap://ldap.example.com:389" or "ldaps://..."

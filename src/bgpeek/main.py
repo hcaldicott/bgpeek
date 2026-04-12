@@ -17,9 +17,11 @@ from bgpeek import __version__
 from bgpeek.api import auth as auth_api
 from bgpeek.api import devices as devices_api
 from bgpeek.api import query as query_api
+from bgpeek.api import webhooks as webhooks_api
 from bgpeek.config import settings
 from bgpeek.core.auth import optional_auth
 from bgpeek.core.i18n import SUPPORTED_LANGS, detect_language, get_translations
+from bgpeek.core.oidc import setup_oidc
 from bgpeek.core.redis import close_redis, init_redis
 from bgpeek.core.time_utils import timeago
 from bgpeek.db import devices as device_crud
@@ -110,6 +112,9 @@ app = FastAPI(
 
 app.add_middleware(I18nMiddleware)
 
+# OIDC must be set up before routes are registered (needs SessionMiddleware).
+setup_oidc(app)
+
 app.mount(
     "/static",
     StaticFiles(directory=str(settings.static_dir)),
@@ -119,6 +124,7 @@ app.mount(
 app.include_router(auth_api.router)
 app.include_router(devices_api.router)
 app.include_router(query_api.router)
+app.include_router(webhooks_api.router)
 
 
 @app.get("/api/health", response_class=JSONResponse)

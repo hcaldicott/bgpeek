@@ -35,6 +35,6 @@ async def pool(pg_dsn: str) -> AsyncIterator[asyncpg.Pool]:
     finally:
         async with pool.acquire() as conn:
             await conn.execute(
-                "TRUNCATE TABLE query_results, devices, users, audit_log RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE webhooks, query_results, devices, users, audit_log RESTART IDENTITY CASCADE"
             )
         await pool.close()

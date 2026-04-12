@@ -49,6 +49,29 @@
                     {{ t.sign_in }}
                 </button>
             </form>
+
+            {% if oidc_enabled %}
+            <div class="relative my-6">
+                <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-slate-200 dark:border-slate-700"></div>
+                </div>
+                <div class="relative flex justify-center text-sm">
+                    <span class="bg-white dark:bg-slate-800 px-2 text-slate-500 dark:text-slate-400">{{ t.or }}</span>
+                </div>
+            </div>
+
+            <a href="/auth/oidc/login"
+               class="w-full inline-flex items-center justify-center rounded-md
+                      border border-slate-300 dark:border-slate-600
+                      bg-white dark:bg-slate-700
+                      text-slate-700 dark:text-slate-200
+                      px-4 py-2 text-sm font-medium
+                      hover:bg-slate-50 dark:hover:bg-slate-600
+                      focus:outline-none focus:ring-2 focus:ring-slate-500
+                      transition-colors">
+                {{ t.sign_in_sso }}
+            </a>
+            {% endif %}
         </div>
     </div>
 </div>

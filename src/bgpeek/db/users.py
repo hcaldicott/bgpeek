@@ -142,6 +142,32 @@ async def upsert_ldap_user(
     return User.model_validate(dict(row))
 
 
+async def upsert_oidc_user(
+    pool: asyncpg.Pool,
+    username: str,
+    email: str | None,
+    role: UserRole,
+    oidc_sub: str,
+) -> User:
+    """Create or update an OIDC-provisioned user. Updates email, role, and last_login_at on conflict."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO users (username, email, role, auth_provider, enabled)
+        VALUES ($1, $2, $3, 'oidc', TRUE)
+        ON CONFLICT (username) DO UPDATE
+            SET email = EXCLUDED.email,
+                role = EXCLUDED.role,
+                last_login_at = now()
+        RETURNING *
+        """,
+        username,
+        email,
+        role.value,
+    )
+    assert row is not None  # noqa: S101
+    return User.model_validate(dict(row))
+
+
 async def get_user_by_credentials(pool: asyncpg.Pool, username: str, password: str) -> User | None:
     """Authenticate a local user by username and password. Returns None on mismatch or disabled."""
     row = await pool.fetchrow(

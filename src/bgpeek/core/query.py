@@ -21,6 +21,7 @@ from bgpeek.db.pool import get_pool
 from bgpeek.models.audit import AuditAction, AuditEntryCreate
 from bgpeek.models.query import BGPRoute, QueryRequest, QueryResponse, QueryType
 from bgpeek.models.user import UserRole
+from bgpeek.models.webhook import WebhookEvent
 
 log = structlog.get_logger(__name__)
 
@@ -177,6 +178,20 @@ async def execute_query(
 
         # 9. Store in cache
         await set_cached(request, response)
+
+        # 10. Dispatch webhook (fire-and-forget)
+        from bgpeek.core.webhooks import dispatch_webhook
+
+        await dispatch_webhook(
+            WebhookEvent.QUERY,
+            {
+                "device_name": device.name,
+                "query_type": request.query_type.value,
+                "target": request.target,
+                "runtime_ms": runtime_ms,
+                "username": username,
+            },
+        )
 
         return response
 

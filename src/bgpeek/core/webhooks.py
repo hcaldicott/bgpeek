@@ -1,0 +1,120 @@
+"""Async webhook dispatcher — fire-and-forget HTTP POST notifications."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
+import structlog
+
+from bgpeek import __version__
+from bgpeek.db.pool import get_pool
+from bgpeek.db.webhooks import list_webhooks_for_event
+from bgpeek.models.webhook import Webhook, WebhookEvent, WebhookPayload
+
+log = structlog.get_logger(__name__)
+
+_TIMEOUT = httpx.Timeout(10.0)
+_RETRY_DELAY = 2.0
+_USER_AGENT = f"bgpeek/{__version__}"
+
+
+def _sign_payload(body: bytes, secret: str) -> str:
+    """Compute HMAC-SHA256 signature for the request body."""
+    mac = hmac.new(secret.encode(), body, hashlib.sha256)
+    return f"sha256={mac.hexdigest()}"
+
+
+async def _deliver(webhook: Webhook, body: bytes, event: WebhookEvent) -> None:
+    """POST the payload to a single webhook URL with one retry on failure."""
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "User-Agent": _USER_AGENT,
+        "X-Webhook-Event": event.value,
+    }
+    if webhook.secret:
+        headers["X-Webhook-Signature"] = _sign_payload(body, webhook.secret)
+
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(webhook.url, content=body, headers=headers)
+            if resp.is_success:
+                log.debug(
+                    "webhook_delivered",
+                    webhook=webhook.name,
+                    webhook_event=event.value,
+                    status=resp.status_code,
+                )
+                return
+            log.warning(
+                "webhook_http_error",
+                webhook=webhook.name,
+                event=event.value,
+                status=resp.status_code,
+                attempt=attempt + 1,
+            )
+        except Exception:
+            log.warning(
+                "webhook_delivery_failed",
+                webhook=webhook.name,
+                event=event.value,
+                attempt=attempt + 1,
+                exc_info=True,
+            )
+        if attempt == 0:
+            await asyncio.sleep(_RETRY_DELAY)
+
+
+async def dispatch_webhook(event: WebhookEvent, data: dict[str, Any]) -> None:
+    """Fire webhooks for the given event. Non-blocking, best-effort."""
+    try:
+        pool = get_pool()
+        hooks = await list_webhooks_for_event(pool, event)
+    except Exception:
+        log.warning("webhook_lookup_failed", webhook_event=event.value, exc_info=True)
+        return
+
+    if not hooks:
+        return
+
+    payload = WebhookPayload(
+        event=event,
+        timestamp=datetime.now(tz=UTC).isoformat(),
+        data=data,
+    )
+    body = json.dumps(payload.model_dump(), default=str).encode()
+
+    for hook in hooks:
+        asyncio.create_task(_deliver(hook, body, event))  # noqa: RET503
+
+
+async def send_test_payload(webhook: Webhook) -> bool:
+    """Send a test payload to a webhook. Returns True on 2xx response."""
+    payload = WebhookPayload(
+        event=WebhookEvent.QUERY,
+        timestamp=datetime.now(tz=UTC).isoformat(),
+        data={"test": True, "message": "bgpeek webhook test"},
+    )
+    body = json.dumps(payload.model_dump(), default=str).encode()
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "User-Agent": _USER_AGENT,
+        "X-Webhook-Event": "test",
+    }
+    if webhook.secret:
+        headers["X-Webhook-Signature"] = _sign_payload(body, webhook.secret)
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(webhook.url, content=body, headers=headers)
+        return resp.is_success
+    except Exception:
+        log.warning("webhook_test_failed", webhook=webhook.name, exc_info=True)
+        return False
