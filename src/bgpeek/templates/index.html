@@ -11,7 +11,19 @@
         <span class="text-lg font-bold tracking-tight">bgpeek</span>
     </a>
     <div class="flex items-center gap-3">
+        <a href="/history" class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">History</a>
         <a href="/api/docs" class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">API</a>
+        {% if user %}
+        <span class="text-sm text-slate-500 dark:text-slate-400">{{ user.username }}</span>
+        <form method="post" action="/auth/logout" class="inline">
+            <button type="submit"
+                    class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                Logout
+            </button>
+        </form>
+        {% else %}
+        <a href="/auth/login" class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">Login</a>
+        {% endif %}
         <button type="button"
                 onclick="bgpeekToggleTheme()"
                 aria-label="Toggle dark mode"

@@ -1,9 +1,12 @@
-"""HTTP handlers for /api/auth and /api/users."""
+"""HTTP handlers for /api/auth, /api/users, and web login/logout."""
 
 from __future__ import annotations
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+import structlog
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.templating import Jinja2Templates
 
 from bgpeek.config import settings
 from bgpeek.core.auth import authenticate, require_role
@@ -20,7 +23,88 @@ from bgpeek.models.user import (
     UserRole,
 )
 
+log = structlog.get_logger()
+
 router = APIRouter(tags=["auth"])
+
+templates = Jinja2Templates(directory=str(settings.templates_dir))
+
+_COOKIE_NAME = "bgpeek_token"
+
+
+# ---------------------------------------------------------------------------
+# Web login / logout
+# ---------------------------------------------------------------------------
+
+
+@router.get("/auth/login", response_class=HTMLResponse)
+async def login_page(request: Request) -> HTMLResponse:
+    """Render the login form."""
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error": None},
+    )
+
+
+@router.post("/auth/login", response_model=None)
+async def login_submit(
+    request: Request,
+    username: str = Form(),  # noqa: B008
+    password: str = Form(),  # noqa: B008
+) -> Response:
+    """Handle web login form submission."""
+    # 1. Try local DB
+    user = await crud.get_user_by_credentials(get_pool(), username, password)
+
+    # 2. Fallback to LDAP
+    if user is None:
+        ldap_info = await authenticate_ldap(username, password)
+        if ldap_info is not None:
+            user = await crud.upsert_ldap_user(
+                get_pool(),
+                username=ldap_info.username,
+                email=ldap_info.email,
+                role=ldap_info.role,
+            )
+
+    if user is None:
+        log.info("web login failed", username=username)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"error": "Invalid username or password"},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    # Update last_login_at
+    await get_pool().execute(
+        "UPDATE users SET last_login_at = now() WHERE id = $1",
+        user.id,
+    )
+
+    token = create_token(user.id, user.username, user.role.value)
+    max_age = settings.jwt_expire_minutes * 60
+
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        path="/",
+        max_age=max_age,
+    )
+    return response
+
+
+@router.post("/auth/logout")
+async def logout() -> RedirectResponse:
+    """Clear the auth cookie and redirect to the main page."""
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(key=_COOKIE_NAME, path="/")
+    return response
 
 
 @router.get("/api/auth/me", response_model=User)

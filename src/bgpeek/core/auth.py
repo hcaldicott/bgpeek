@@ -1,4 +1,4 @@
-"""Authentication dependencies for FastAPI (API key + JWT)."""
+"""Authentication dependencies for FastAPI (API key + JWT + cookie)."""
 
 from __future__ import annotations
 
@@ -6,12 +6,14 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 import jwt as pyjwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 
 from bgpeek.core.jwt import decode_token
 from bgpeek.db import users as user_crud
 from bgpeek.db.pool import get_pool
 from bgpeek.models.user import User, UserRole
+
+_COOKIE_NAME = "bgpeek_token"
 
 
 async def _resolve_bearer(authorization: str) -> User | None:
@@ -19,6 +21,11 @@ async def _resolve_bearer(authorization: str) -> User | None:
     if not authorization.lower().startswith("bearer "):
         return None
     token = authorization[7:]
+    return await _resolve_jwt(token)
+
+
+async def _resolve_jwt(token: str) -> User:
+    """Decode a JWT string and look up the user. Raises 401 on failure."""
     try:
         payload = decode_token(token)
     except pyjwt.InvalidTokenError:
@@ -44,8 +51,9 @@ async def _resolve_bearer(authorization: str) -> User | None:
 async def authenticate(
     x_api_key: str | None = Header(default=None),  # noqa: B008
     authorization: str | None = Header(default=None),  # noqa: B008
+    bgpeek_token: str | None = Cookie(default=None),  # noqa: B008
 ) -> User:
-    """Resolve either ``X-API-Key`` or ``Authorization: Bearer <jwt>`` to a User, or 401."""
+    """Resolve X-API-Key, Authorization Bearer, or cookie to a User, or 401."""
     # 1. Try API key
     if x_api_key is not None:
         user = await user_crud.get_user_by_api_key(get_pool(), x_api_key)
@@ -62,15 +70,20 @@ async def authenticate(
         if user is not None:
             return user
 
+    # 3. Try cookie
+    if bgpeek_token is not None:
+        return await _resolve_jwt(bgpeek_token)
+
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="missing credentials — provide X-API-Key or Authorization header",
+        detail="missing credentials — provide X-API-Key, Authorization header, or login cookie",
     )
 
 
 async def optional_auth(
     x_api_key: str | None = Header(default=None),  # noqa: B008
     authorization: str | None = Header(default=None),  # noqa: B008
+    bgpeek_token: str | None = Cookie(default=None),  # noqa: B008
 ) -> User | None:
     """Like ``authenticate`` but returns None when no credentials are provided."""
     if x_api_key is not None:
@@ -86,6 +99,13 @@ async def optional_auth(
         user = await _resolve_bearer(authorization)
         if user is not None:
             return user
+
+    if bgpeek_token is not None:
+        try:
+            return await _resolve_jwt(bgpeek_token)
+        except HTTPException:
+            # Invalid/expired cookie — treat as unauthenticated, not an error
+            return None
 
     return None
 

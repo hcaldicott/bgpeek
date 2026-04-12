@@ -68,6 +68,7 @@ async def list_results(
     *,
     user_id: int | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[StoredResult]:
     """List recent non-expired results, optionally filtered by user."""
     if user_id is not None:
@@ -76,10 +77,11 @@ async def list_results(
             SELECT * FROM query_results
             WHERE user_id = $1 AND expires_at > now()
             ORDER BY created_at DESC
-            LIMIT $2
+            LIMIT $2 OFFSET $3
             """,
             user_id,
             limit,
+            offset,
         )
     else:
         rows = await pool.fetch(
@@ -87,9 +89,10 @@ async def list_results(
             SELECT * FROM query_results
             WHERE expires_at > now()
             ORDER BY created_at DESC
-            LIMIT $1
+            LIMIT $1 OFFSET $2
             """,
             limit,
+            offset,
         )
     return [_row_to_model(r) for r in rows]
 

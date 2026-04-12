@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,13 +14,18 @@ from bgpeek.api import auth as auth_api
 from bgpeek.api import devices as devices_api
 from bgpeek.api import query as query_api
 from bgpeek.config import settings
+from bgpeek.core.auth import optional_auth
 from bgpeek.core.redis import close_redis, init_redis
+from bgpeek.core.time_utils import timeago
 from bgpeek.db import devices as device_crud
 from bgpeek.db.pool import close_pool, get_pool, init_pool
+from bgpeek.db.results import list_results
+from bgpeek.models.user import User
 
 log = structlog.get_logger()
 
 templates = Jinja2Templates(directory=str(settings.templates_dir))
+templates.env.filters["timeago"] = timeago
 
 
 @asynccontextmanager
@@ -63,7 +68,10 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request) -> HTMLResponse:
+async def index(
+    request: Request,
+    user: User | None = Depends(optional_auth),  # noqa: B008
+) -> HTMLResponse:
     """Main looking glass form — loads devices from DB for the dropdown."""
     try:
         devices = await device_crud.list_devices(get_pool(), enabled_only=True)
@@ -72,7 +80,54 @@ async def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"version": __version__, "devices": devices},
+        context={"version": __version__, "devices": devices, "user": user},
+    )
+
+
+_HISTORY_PAGE_SIZE = 25
+
+
+@app.get("/history", response_class=HTMLResponse)
+async def history(
+    request: Request,
+    offset: int = 0,
+    partial: int = 0,
+    user: User | None = Depends(optional_auth),  # noqa: B008
+) -> HTMLResponse:
+    """Query history page with offset-based pagination."""
+    user_id = user.id if user else None
+    try:
+        results = await list_results(
+            get_pool(),
+            user_id=user_id,
+            limit=_HISTORY_PAGE_SIZE + 1,
+            offset=max(offset, 0),
+        )
+    except RuntimeError:
+        results = []
+
+    has_more = len(results) > _HISTORY_PAGE_SIZE
+    if has_more:
+        results = results[:_HISTORY_PAGE_SIZE]
+
+    next_offset = max(offset, 0) + _HISTORY_PAGE_SIZE
+    ctx = {
+        "results": results,
+        "has_more": has_more,
+        "next_offset": next_offset,
+        "user": user,
+    }
+
+    if partial:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/history_rows.html",
+            context=ctx,
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="history.html",
+        context=ctx,
     )
 
 

@@ -1,4 +1,4 @@
-"""Tests for the authentication dependencies (API key + JWT)."""
+"""Tests for the authentication dependencies (API key + JWT + cookie)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,13 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 from fastapi import Depends, FastAPI, status
+from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
 from bgpeek.core.auth import authenticate, optional_auth, require_api_key, require_role
 from bgpeek.models.user import User, UserRole
+
+_COOKIE_NAME = "bgpeek_token"
 
 _NOW = datetime.now(tz=UTC)
 
@@ -229,3 +232,141 @@ class TestJWTAuth:
         client = TestClient(app)
         resp = client.get("/unified")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestCookieAuth:
+    def test_valid_cookie_returns_user(self) -> None:
+        from bgpeek.core.jwt import create_token
+
+        token = create_token(_LOCAL_USER.id, _LOCAL_USER.username, _LOCAL_USER.role.value)
+        app = _build_app()
+        with _patch_pool(), _patch_user_by_id(_LOCAL_USER):
+            client = TestClient(app)
+            resp = client.get("/unified", cookies={_COOKIE_NAME: token})
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["user"] == "local-user"
+
+    def test_invalid_cookie_returns_401(self) -> None:
+        app = _build_app()
+        with _patch_pool():
+            client = TestClient(app)
+            resp = client.get("/unified", cookies={_COOKIE_NAME: "garbage-token"})
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_optional_auth_with_valid_cookie(self) -> None:
+        from bgpeek.core.jwt import create_token
+
+        token = create_token(_LOCAL_USER.id, _LOCAL_USER.username, _LOCAL_USER.role.value)
+        app = _build_app()
+        with _patch_pool(), _patch_user_by_id(_LOCAL_USER):
+            client = TestClient(app)
+            resp = client.get("/optional", cookies={_COOKIE_NAME: token})
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["user"] == "local-user"
+
+    def test_optional_auth_with_invalid_cookie_returns_anonymous(self) -> None:
+        app = _build_app()
+        with _patch_pool():
+            client = TestClient(app)
+            resp = client.get("/optional", cookies={_COOKIE_NAME: "garbage-token"})
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["user"] == "anonymous"
+
+    def test_api_key_takes_priority_over_cookie(self) -> None:
+        from bgpeek.core.jwt import create_token
+
+        token = create_token(_LOCAL_USER.id, _LOCAL_USER.username, _LOCAL_USER.role.value)
+        app = _build_app()
+        with _patch_pool(), _patch_lookup(_ADMIN):
+            client = TestClient(app)
+            resp = client.get(
+                "/unified",
+                headers={"X-API-Key": "test-key"},
+                cookies={_COOKIE_NAME: token},
+            )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["user"] == "admin"
+
+
+class TestWebLogin:
+    def _patch_templates(self) -> object:
+        return patch("bgpeek.api.auth.templates")
+
+    def _patch_credentials(self, return_value: User | None) -> object:
+        return patch(
+            "bgpeek.api.auth.crud.get_user_by_credentials",
+            new_callable=AsyncMock,
+            return_value=return_value,
+        )
+
+    def _patch_ldap(self, return_value: object = None) -> object:
+        return patch(
+            "bgpeek.api.auth.authenticate_ldap",
+            new_callable=AsyncMock,
+            return_value=return_value,
+        )
+
+    def _patch_api_pool(self) -> object:
+        pool = AsyncMock()
+        pool.execute = AsyncMock(return_value="UPDATE 1")
+        return patch("bgpeek.api.auth.get_pool", return_value=pool)
+
+    def test_login_page_renders(self) -> None:
+        from bgpeek.api.auth import router as auth_router
+
+        app = FastAPI()
+        app.include_router(auth_router)
+        client = TestClient(app)
+        with self._patch_templates() as mock_tpl:
+            mock_tpl.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            resp = client.get("/auth/login")
+        assert resp.status_code == status.HTTP_200_OK
+
+    def test_login_success_sets_cookie_and_redirects(self) -> None:
+        from bgpeek.api.auth import router as auth_router
+
+        app = FastAPI()
+        app.include_router(auth_router)
+        with self._patch_api_pool(), self._patch_credentials(_LOCAL_USER), self._patch_ldap():
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post(
+                "/auth/login",
+                data={"username": "local-user", "password": "secret123"},
+            )
+        assert resp.status_code == status.HTTP_303_SEE_OTHER
+        assert resp.headers["location"] == "/"
+        assert _COOKIE_NAME in resp.cookies
+
+    def test_login_invalid_credentials_returns_401(self) -> None:
+        from bgpeek.api.auth import router as auth_router
+
+        app = FastAPI()
+        app.include_router(auth_router)
+        with (
+            self._patch_api_pool(),
+            self._patch_credentials(None),
+            self._patch_ldap(None),
+            self._patch_templates() as mock_tpl,
+        ):
+            mock_tpl.TemplateResponse.return_value = HTMLResponse(
+                "<html>error</html>", status_code=401
+            )
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post(
+                "/auth/login",
+                data={"username": "bad-user", "password": "wrong"},
+            )
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_logout_clears_cookie(self) -> None:
+        from bgpeek.api.auth import router as auth_router
+
+        app = FastAPI()
+        app.include_router(auth_router)
+        client = TestClient(app, follow_redirects=False)
+        resp = client.post("/auth/logout", cookies={_COOKIE_NAME: "some-token"})
+        assert resp.status_code == status.HTTP_303_SEE_OTHER
+        assert resp.headers["location"] == "/"
+        # Cookie should be cleared (max-age=0 or deleted)
+        cookie_header = resp.headers.get("set-cookie", "")
+        assert _COOKIE_NAME in cookie_header
