@@ -11,8 +11,10 @@ from fastapi.templating import Jinja2Templates
 
 from bgpeek import __version__
 from bgpeek.api import devices as devices_api
+from bgpeek.api import query as query_api
 from bgpeek.config import settings
-from bgpeek.db.pool import close_pool, init_pool
+from bgpeek.db import devices as device_crud
+from bgpeek.db.pool import close_pool, get_pool, init_pool
 
 log = structlog.get_logger()
 
@@ -43,6 +45,7 @@ app.mount(
 )
 
 app.include_router(devices_api.router)
+app.include_router(query_api.router)
 
 
 @app.get("/api/health", response_class=JSONResponse)
@@ -53,11 +56,15 @@ async def health() -> dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """Main looking glass form."""
+    """Main looking glass form — loads devices from DB for the dropdown."""
+    try:
+        devices = await device_crud.list_devices(get_pool(), enabled_only=True)
+    except RuntimeError:
+        devices = []
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"version": __version__},
+        context={"version": __version__, "devices": devices},
     )
 
 

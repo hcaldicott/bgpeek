@@ -1,0 +1,15 @@
+<div class="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-slate-800">
+            {{ result.device_name }}
+            <span class="text-sm font-normal text-slate-500">/ {{ result.query_type }}</span>
+        </h2>
+        <span class="text-xs text-slate-500">{{ result.runtime_ms }}ms</span>
+    </div>
+
+    <div class="mb-2 text-xs font-mono text-slate-500 bg-slate-50 px-3 py-1 rounded">
+        {{ result.command }}
+    </div>
+
+    <pre class="bg-slate-900 text-green-400 text-sm p-4 rounded-lg overflow-x-auto max-h-[600px] overflow-y-auto">{{ result.filtered_output }}</pre>
+</div>

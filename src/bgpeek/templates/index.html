@@ -15,8 +15,14 @@
             <label class="block">
                 <span class="text-sm font-medium text-slate-700">Location</span>
                 <select name="location"
+                        required
                         class="mt-1 w-full rounded border-slate-300 focus:border-slate-500 focus:ring-slate-500">
-                    <option value="">— select PoP —</option>
+                    <option value="">— select device —</option>
+                    {% for device in devices %}
+                    <option value="{{ device.name }}">
+                        {{ device.name }}{% if device.location %} ({{ device.location }}){% endif %}
+                    </option>
+                    {% endfor %}
                 </select>
             </label>
 
@@ -34,6 +40,7 @@
                 <span class="text-sm font-medium text-slate-700">Target</span>
                 <input type="text"
                        name="target"
+                       required
                        placeholder="8.8.8.0/24"
                        class="mt-1 w-full rounded border-slate-300 focus:border-slate-500 focus:ring-slate-500">
             </label>
