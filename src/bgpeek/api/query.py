@@ -11,12 +11,15 @@ from fastapi.templating import Jinja2Templates
 
 from bgpeek.config import settings
 from bgpeek.core.auth import authenticate, optional_auth
+from bgpeek.core.parallel import execute_parallel
 from bgpeek.core.query import QueryExecutionError, execute_query
 from bgpeek.core.rate_limit import rate_limit_query
 from bgpeek.core.validators import TargetValidationError
 from bgpeek.db.pool import get_pool
 from bgpeek.db.results import get_result, list_results, save_result
 from bgpeek.models.query import (
+    MultiQueryRequest,
+    MultiQueryResponse,
     QueryError,
     QueryRequest,
     QueryResponse,
@@ -134,6 +137,98 @@ async def htmx_query(
                 "lang": request.state.lang,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Multi-device parallel query endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/query/multi", response_model=MultiQueryResponse)
+async def api_multi_query(
+    request: Request,
+    body: MultiQueryRequest,
+    caller: User = Depends(authenticate),  # noqa: B008
+    _rl: None = Depends(rate_limit_query),  # noqa: B008
+) -> MultiQueryResponse:
+    """Execute a query against multiple devices in parallel (JSON API)."""
+    response = await execute_parallel(
+        body,
+        source_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        user_id=caller.id,
+        username=caller.username,
+        user_role=caller.role.value,
+    )
+    for result in response.results:
+        result_id = await _persist_result(result, caller.id, caller.username)
+        result.result_id = str(result_id)
+    return response
+
+
+@router.post("/query/multi", response_class=HTMLResponse)
+async def htmx_multi_query(
+    request: Request,
+    caller: User | None = Depends(optional_auth),  # noqa: B008
+    _rl: None = Depends(rate_limit_query),  # noqa: B008
+) -> HTMLResponse:
+    """Execute a parallel query and return an HTMX partial with all results."""
+    form = await request.form()
+    raw_names = form.getlist("device_names") or form.getlist("location")
+    device_names = [str(n) for n in raw_names if str(n).strip()]
+    if not device_names:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/error.html",
+            context={
+                "error": "At least one device must be selected.",
+                "t": request.state.t,
+                "lang": request.state.lang,
+            },
+        )
+
+    try:
+        body = MultiQueryRequest(
+            device_names=device_names,
+            query_type=QueryType(str(form.get("query_type", "bgp_route"))),
+            target=str(form.get("target", "")),
+        )
+    except Exception:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/error.html",
+            context={
+                "error": "Invalid query parameters.",
+                "t": request.state.t,
+                "lang": request.state.lang,
+            },
+        )
+
+    response = await execute_parallel(
+        body,
+        source_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        user_id=caller.id if caller else None,
+        username=caller.username if caller else None,
+        user_role=caller.role.value if caller else None,
+    )
+    for result in response.results:
+        result_id = await _persist_result(
+            result,
+            caller.id if caller else None,
+            caller.username if caller else None,
+        )
+        result.result_id = str(result_id)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/multi_result.html",
+        context={
+            "response": response,
+            "t": request.state.t,
+            "lang": request.state.lang,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

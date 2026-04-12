@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     rate_limit_login: int = 5  # login attempts per minute per IP
     rate_limit_api: int = 60  # API calls per minute per API key
 
+    # --- Parallel queries ---
+    max_parallel_queries: int = Field(
+        default=5,
+        description="Maximum concurrent SSH queries for multi-device requests",
+    )
+
     # --- Results ---
     result_ttl_days: int = Field(
         default=7,

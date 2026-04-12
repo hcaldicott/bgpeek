@@ -80,3 +80,22 @@ class QueryError(BaseModel):
     detail: str
     target: str | None = None
     device_name: str | None = None
+
+
+class MultiQueryRequest(BaseModel):
+    """Query targeting multiple devices in parallel."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    device_names: list[str] = Field(min_length=1, max_length=10)
+    query_type: QueryType
+    target: str = Field(min_length=1, max_length=255)
+
+
+class MultiQueryResponse(BaseModel):
+    """Results from parallel queries across multiple devices."""
+
+    results: list[QueryResponse] = Field(default_factory=list)
+    errors: list[QueryError] = Field(default_factory=list)
+    total_runtime_ms: int
+    device_count: int
