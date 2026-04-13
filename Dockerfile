@@ -32,6 +32,12 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /opt/venv/bin/python --no-cache --no-deps -e .
 
+# Build Tailwind CSS (standalone binary, no Node.js needed)
+ADD https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+RUN chmod +x /usr/local/bin/tailwindcss
+COPY tailwind.config.js ./
+RUN tailwindcss -i src/bgpeek/static/css/input.css -o src/bgpeek/static/css/tailwind.css --minify
+
 # ===== Stage 2: runtime =====
 FROM python:3.12-slim AS runtime
 

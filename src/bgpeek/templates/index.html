@@ -69,20 +69,7 @@
                   class="space-y-4">
 
                 <div class="block">
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{{ t.location }}</span>
-                        <span class="flex items-center gap-2 text-xs">
-                            <a href="#" id="select-all-devices"
-                               class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
-                                {{ t.select_all }}
-                            </a>
-                            <span class="text-slate-300 dark:text-slate-600">|</span>
-                            <a href="#" id="clear-devices"
-                               class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
-                                {{ t.clear_selection }}
-                            </a>
-                        </span>
-                    </div>
+                    <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{{ t.location }}</span>
                     <select name="location" id="device-select" multiple required
                             class="mt-1 block w-full rounded-md border border-slate-300 dark:border-slate-600
                                    bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100
@@ -112,7 +99,7 @@
                     <select name="query_type"
                             class="mt-1 block w-full rounded-md border border-slate-300 dark:border-slate-600
                                    bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100
-                                   px-3 py-2 text-sm
+                                   px-3 py-2 pr-8 text-sm
                                    focus:border-slate-500 focus:ring-1 focus:ring-slate-500
                                    dark:focus:border-slate-400 dark:focus:ring-slate-400">
                         <option value="bgp_route">{{ t.bgp_route }}</option>
@@ -204,9 +191,6 @@
   var results     = document.getElementById("results");
   var deviceSel   = document.getElementById("device-select");
   var deviceCount = document.getElementById("device-count");
-  var selectAll   = document.getElementById("select-all-devices");
-  var clearAll    = document.getElementById("clear-devices");
-
   var labelSelected = "{{ t.n_selected }}";
 
   /* ── Multi-select helpers ─────────────────────────────────────── */
@@ -229,22 +213,6 @@
   }
 
   deviceSel.addEventListener("change", updateFormAction);
-
-  selectAll.addEventListener("click", function (e) {
-    e.preventDefault();
-    for (var i = 0; i < deviceSel.options.length; i++) {
-      deviceSel.options[i].selected = true;
-    }
-    updateFormAction();
-  });
-
-  clearAll.addEventListener("click", function (e) {
-    e.preventDefault();
-    for (var i = 0; i < deviceSel.options.length; i++) {
-      deviceSel.options[i].selected = false;
-    }
-    updateFormAction();
-  });
 
   /* ── Toggle Run/Abort state on HTMX lifecycle events ──────────── */
   form.addEventListener("htmx:beforeRequest", function () {

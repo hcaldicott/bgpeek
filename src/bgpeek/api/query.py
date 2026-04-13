@@ -47,6 +47,8 @@ def _friendly_error(detail: str, t: dict[str, str]) -> str:
         return t.get("error_bogon", detail)
     if "too specific" in lower:
         return t.get("error_prefix_too_specific", detail)
+    if "subnet mask not allowed" in lower:
+        return t.get("error_cidr_not_allowed", detail)
     if "parse error" in lower:
         return t.get("error_invalid_target", detail)
     if "dns resolution is disabled" in lower:

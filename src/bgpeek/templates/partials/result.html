@@ -139,8 +139,12 @@
     </details>
     {% else %}
     {# Raw output fallback (ping, traceroute, unparsed BGP) #}
+    {% if result.filtered_output and result.filtered_output.strip() %}
     <pre class="bg-slate-900 dark:bg-slate-950 text-green-400 text-sm leading-relaxed
                 p-4 overflow-x-auto max-h-[600px] overflow-y-auto scrollbar-thin
                 font-mono select-all">{{ result.filtered_output }}</pre>
+    {% else %}
+    <p class="text-sm text-slate-500 dark:text-slate-400 italic py-4 text-center">{{ t.no_output }}</p>
+    {% endif %}
     {% endif %}
 </div>

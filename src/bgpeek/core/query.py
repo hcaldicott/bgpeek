@@ -99,6 +99,13 @@ async def execute_query(
             resolved_target = resolution.resolved
             audit_entry.query_target = f"{resolution.original} ({resolution.resolved})"
 
+        # Reject CIDR notation for ping/traceroute (only IPs/hostnames allowed)
+        if request.query_type in (QueryType.PING, QueryType.TRACEROUTE) and "/" in effective_target:
+            raise TargetValidationError(
+                "subnet mask not allowed for ping/traceroute — enter an IP address or hostname",
+                effective_target,
+            )
+
         # 1. Validate target
         if request.query_type == QueryType.BGP_ROUTE:
             validate_target(effective_target)

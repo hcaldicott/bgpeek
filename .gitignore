@@ -56,3 +56,6 @@ secrets/
 
 # Docker
 .dockerignore.bak
+
+# Tailwind build output (generated at build time)
+src/bgpeek/static/css/tailwind.css
