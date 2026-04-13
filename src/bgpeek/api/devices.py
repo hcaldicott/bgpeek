@@ -24,7 +24,10 @@ async def list_devices(
     _caller: User = Depends(authenticate),  # noqa: B008
 ) -> list[Device]:
     """List all devices, optionally filtered to enabled only."""
-    return await crud.list_devices(get_pool(), enabled_only=enabled_only)
+    include_restricted = _caller.role in (UserRole.ADMIN, UserRole.NOC)
+    return await crud.list_devices(
+        get_pool(), enabled_only=enabled_only, include_restricted=include_restricted
+    )
 
 
 @router.get("/{device_id}", response_model=Device)

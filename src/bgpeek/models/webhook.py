@@ -48,7 +48,12 @@ _BLOCKED_NETWORKS = [
 
 def _check_blocked(addr_str: str) -> None:
     """Raise ValueError if *addr_str* falls inside a blocked network."""
+    from ipaddress import IPv6Address
+
     addr = ip_address(addr_str)
+    # Handle IPv6-mapped IPv4 (e.g. ::ffff:10.0.0.1)
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
     for net in _BLOCKED_NETWORKS:
         if addr in net:
             raise ValueError(
@@ -98,6 +103,13 @@ class WebhookUpdate(BaseModel):
     events: list[WebhookEvent] | None = Field(default=None, min_length=1)
     enabled: bool | None = None
     secret: str | None = Field(default=None, max_length=255)
+
+    @field_validator("url")
+    @classmethod
+    def validate_webhook_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return WebhookCreate.validate_webhook_url(v)
 
 
 class Webhook(WebhookBase):
