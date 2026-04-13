@@ -5,32 +5,60 @@ on:
     tags: ['v*']
 
 jobs:
-  publish-pypi:
+  github-release:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: uv build
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Generate release notes
+        run: |
+          echo "## What's new" > notes.md
+          echo "" >> notes.md
+          echo "See [CHANGELOG](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) for details." >> notes.md
+          echo "" >> notes.md
+          echo "## Install" >> notes.md
+          echo "" >> notes.md
+          echo '```bash' >> notes.md
+          echo "# Docker" >> notes.md
+          echo "docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}" >> notes.md
+          echo "" >> notes.md
+          echo "# pip" >> notes.md
+          echo "pip install bgpeek" >> notes.md
+          echo '```' >> notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          generate_release_notes: true
 
-  publish-docker:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          push: true
-          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }},ghcr.io/${{ github.repository }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # TODO: uncomment when PyPI trusted publisher is configured
+  # publish-pypi:
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     id-token: write
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: astral-sh/setup-uv@v4
+  #     - run: uv build
+  #     - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # TODO: uncomment when GHCR is configured
+  # publish-docker:
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: read
+  #     packages: write
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: docker/setup-buildx-action@v3
+  #     - uses: docker/login-action@v3
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
+  #     - uses: docker/build-push-action@v6
+  #       with:
+  #         push: true
+  #         tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }},ghcr.io/${{ github.repository }}:latest
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
