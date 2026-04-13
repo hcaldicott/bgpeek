@@ -20,8 +20,10 @@ from bgpeek.models.user import (
     LoginRequest,
     LoginResponse,
     User,
+    UserAdmin,
     UserCreate,
     UserCreateLocal,
+    UserPublic,
     UserRole,
 )
 from bgpeek.models.webhook import WebhookEvent
@@ -129,7 +131,7 @@ async def logout() -> RedirectResponse:
     return response
 
 
-@router.get("/api/auth/me", response_model=User)
+@router.get("/api/auth/me", response_model=UserPublic)
 async def whoami(user: User = Depends(authenticate)) -> User:  # noqa: B008
     """Return the authenticated user."""
     return user
@@ -276,7 +278,7 @@ async def oidc_callback(request: Request) -> Response:
 _admin = require_role(UserRole.ADMIN)
 
 
-@router.post("/api/users", response_model=User, status_code=status.HTTP_201_CREATED)
+@router.post("/api/users", response_model=UserAdmin, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreate,
     _caller: User = Depends(_admin),  # noqa: B008
@@ -291,7 +293,7 @@ async def create_user(
         ) from exc
 
 
-@router.post("/api/users/local", response_model=User, status_code=status.HTTP_201_CREATED)
+@router.post("/api/users/local", response_model=UserAdmin, status_code=status.HTTP_201_CREATED)
 async def create_local_user(
     payload: UserCreateLocal,
     _caller: User = Depends(_admin),  # noqa: B008
@@ -306,7 +308,7 @@ async def create_local_user(
         ) from exc
 
 
-@router.get("/api/users", response_model=list[User])
+@router.get("/api/users", response_model=list[UserAdmin])
 async def list_users(
     _caller: User = Depends(_admin),  # noqa: B008
 ) -> list[User]:

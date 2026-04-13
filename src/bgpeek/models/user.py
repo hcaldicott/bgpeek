@@ -75,10 +75,36 @@ class User(UserBase):
     last_login_at: datetime | None = None
 
 
+class UserPublic(BaseModel):
+    """User fields safe for public API responses — no hashes, no internals."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    role: UserRole
+    enabled: bool
+
+
+class UserAdmin(BaseModel):
+    """User fields for admin API responses — includes metadata but no hashes."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: str | None = None
+    role: UserRole
+    auth_provider: str
+    enabled: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
 class LoginResponse(BaseModel):
     """Response returned after successful login."""
 
     token: str
     token_type: str = "bearer"  # noqa: S105
     expires_in: int
-    user: User
+    user: UserPublic
