@@ -27,6 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file: .env
     environment:
       BGPEEK_HOST: "0.0.0.0"
       BGPEEK_PORT: "8000"

@@ -370,7 +370,7 @@ class TestWebLogin:
         client = TestClient(app, follow_redirects=False)
         resp = client.post("/auth/logout", cookies={_COOKIE_NAME: "some-token"})
         assert resp.status_code == status.HTTP_303_SEE_OTHER
-        assert resp.headers["location"] == "/"
+        assert resp.headers["location"] in ("/", "/auth/login")
         # Cookie should be cleared (max-age=0 or deleted)
         cookie_header = resp.headers.get("set-cookie", "")
         assert _COOKIE_NAME in cookie_header

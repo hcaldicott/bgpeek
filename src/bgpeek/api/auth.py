@@ -125,8 +125,9 @@ async def login_submit(
 
 @router.post("/auth/logout")
 async def logout() -> RedirectResponse:
-    """Clear the auth cookie and redirect to the main page."""
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    """Clear the auth cookie and redirect to login or main page."""
+    url = "/auth/login" if settings.access_mode in ("closed", "guest") else "/"
+    response = RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(
         key=_COOKIE_NAME,
         path="/",
