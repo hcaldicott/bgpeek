@@ -384,7 +384,7 @@ async def history(
             return RedirectResponse(url="/auth/login", status_code=303)
         if settings.access_mode == "guest":
             user = guest_user()
-    user_id = user.id if user else None
+    user_id = user.id if user and user.id != 0 else None
     try:
         results = await list_results(
             get_pool(),

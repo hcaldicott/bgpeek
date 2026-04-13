@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from bgpeek.config import settings
-from bgpeek.models.query import BGPRoute, QueryResponse, QueryType
+from bgpeek.models.query import BGPRoute, QueryResponse, QueryType, StoredResult
 from bgpeek.models.user import UserRole
 
 # RFC1918 + RFC6598 (CGNAT) patterns for masking internal IPs
@@ -58,6 +58,31 @@ def filter_response(response: QueryResponse, user_role: str | None) -> QueryResp
         data["raw_output"] = ""
 
     return QueryResponse.model_validate(data)
+
+
+def filter_stored_result(result: StoredResult, user_role: str | None) -> StoredResult:
+    """Filter a stored result for history/permalink pages."""
+    if _is_privileged(user_role):
+        return result
+
+    level = settings.public_output_level
+    if level == "full":
+        return result
+
+    data = result.model_dump()
+
+    qt = result.query_type
+    if qt == QueryType.BGP_ROUTE:
+        data = _filter_bgp(data, level)
+    elif qt == QueryType.PING:
+        data = _filter_ping(data, level)
+    elif qt == QueryType.TRACEROUTE:
+        data = _filter_traceroute(data, level)
+
+    if level in ("restricted", "standard"):
+        data["raw_output"] = ""
+
+    return StoredResult.model_validate(data)
 
 
 def _filter_bgp(data: dict, level: str) -> dict:

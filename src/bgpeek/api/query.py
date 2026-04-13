@@ -16,7 +16,7 @@ from bgpeek.core.auth import authenticate, guest_user, optional_auth
 from bgpeek.core.parallel import execute_parallel
 from bgpeek.core.query import QueryExecutionError, execute_query
 from bgpeek.core.rate_limit import rate_limit_query
-from bgpeek.core.response_filter import filter_response
+from bgpeek.core.response_filter import filter_response, filter_stored_result
 from bgpeek.core.validators import TargetValidationError
 from bgpeek.db.pool import get_pool
 from bgpeek.db.results import get_result, list_results, save_result
@@ -329,18 +329,29 @@ async def htmx_multi_query(
 
 
 @router.get("/api/results/{result_id}", response_model=StoredResult)
-async def api_get_result(result_id: uuid.UUID) -> StoredResult:
+async def api_get_result(
+    result_id: uuid.UUID,
+    caller: User | None = Depends(optional_auth),  # noqa: B008
+) -> StoredResult:
     """Return a stored query result as JSON."""
     stored = await get_result(get_pool(), result_id)
     if stored is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Result not found or expired.")
-    return stored
+    role = caller.role.value if caller else None
+    return filter_stored_result(stored, role)
 
 
 @router.get("/result/{result_id}", response_class=HTMLResponse)
-async def result_page(request: Request, result_id: uuid.UUID) -> HTMLResponse:
+async def result_page(
+    request: Request,
+    result_id: uuid.UUID,
+    user: User | None = Depends(optional_auth),  # noqa: B008
+) -> HTMLResponse:
     """Render a standalone HTML page for a shared result."""
     stored = await get_result(get_pool(), result_id)
+    if stored is not None:
+        role = user.role.value if user else None
+        stored = filter_stored_result(stored, role)
     return templates.TemplateResponse(
         request=request,
         name="result_page.html",
@@ -358,7 +369,9 @@ async def api_list_results(
     caller: User = Depends(authenticate),  # noqa: B008
 ) -> list[StoredResult]:
     """List recent results for the authenticated user."""
-    return await list_results(get_pool(), user_id=_real_user_id(caller))
+    results = await list_results(get_pool(), user_id=_real_user_id(caller))
+    role = caller.role.value
+    return [filter_stored_result(r, role) for r in results]
 
 
 # ---------------------------------------------------------------------------
