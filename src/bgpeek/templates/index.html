@@ -68,6 +68,25 @@
                   hx-indicator="#spinner"
                   class="space-y-4">
 
+                {# ── Region filter (shown only when multiple regions exist) ── #}
+                {% set regions = device_groups | selectattr('0') | map(attribute='0') | list %}
+                {% if regions | length > 1 %}
+                <label class="block">
+                    <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{{ t.region_filter }}</span>
+                    <select id="region-filter"
+                            class="mt-1 block w-full rounded-md border border-slate-300 dark:border-slate-600
+                                   bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100
+                                   px-3 py-2 pr-8 text-sm
+                                   focus:border-slate-500 focus:ring-1 focus:ring-slate-500
+                                   dark:focus:border-slate-400 dark:focus:ring-slate-400">
+                        <option value="">{{ t.region_all }}</option>
+                        {% for r in regions %}
+                        <option value="{{ r }}">{{ r }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                {% endif %}
+
                 <div class="block">
                     <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{{ t.location }}</span>
                     <select name="location" id="device-select" multiple required
@@ -217,6 +236,31 @@
   }
 
   deviceSel.addEventListener("change", updateFormAction);
+
+  /* ── Region filter ───────────────────────────────────────────── */
+  var regionFilter = document.getElementById("region-filter");
+  if (regionFilter) {
+    regionFilter.addEventListener("change", function () {
+      var selected = regionFilter.value;
+      var optgroups = deviceSel.querySelectorAll("optgroup");
+      var topOptions = deviceSel.querySelectorAll(":scope > option");
+
+      optgroups.forEach(function (og) {
+        og.style.display = (!selected || og.label === selected) ? "" : "none";
+        // Deselect hidden options
+        if (og.style.display === "none") {
+          Array.from(og.options).forEach(function (o) { o.selected = false; });
+        }
+      });
+
+      topOptions.forEach(function (o) {
+        o.style.display = selected ? "none" : "";
+        if (o.style.display === "none") { o.selected = false; }
+      });
+
+      updateFormAction();
+    });
+  }
 
   /* ── Toggle Run/Abort state on HTMX lifecycle events ──────────── */
   form.addEventListener("htmx:beforeRequest", function () {
