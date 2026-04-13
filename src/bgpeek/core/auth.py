@@ -8,7 +8,6 @@ from typing import Any
 import jwt as pyjwt
 from fastapi import Cookie, Depends, Header, HTTPException, status
 
-from bgpeek.config import settings
 from bgpeek.core.jwt import decode_token
 from bgpeek.db import users as user_crud
 from bgpeek.db.pool import get_pool

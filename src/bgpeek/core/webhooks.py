@@ -71,7 +71,7 @@ async def _deliver(webhook: Webhook, body: bytes, event: WebhookEvent) -> None:
                 exc_info=True,
             )
         if attempt < _MAX_RETRIES:
-            await asyncio.sleep(_RETRY_DELAY * (2 ** attempt))
+            await asyncio.sleep(_RETRY_DELAY * (2**attempt))
 
 
 async def dispatch_webhook(event: WebhookEvent, data: dict[str, Any]) -> None:

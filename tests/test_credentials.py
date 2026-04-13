@@ -1,4 +1,5 @@
 """Tests for credential encryption, DB CRUD, and query-pipeline resolution."""
+# ruff: noqa: S105 — test fixtures use dummy passwords intentionally
 
 from __future__ import annotations
 
@@ -58,9 +59,7 @@ def _mock_pool() -> AsyncMock:
 
 
 def _make_request(device: str = "rt1", target: str = "8.8.8.0/24") -> QueryRequest:
-    return QueryRequest(
-        device_name=device, query_type=QueryType.BGP_ROUTE, target=target
-    )
+    return QueryRequest(device_name=device, query_type=QueryType.BGP_ROUTE, target=target)
 
 
 def _make_device(name: str = "rt1") -> Device:
@@ -296,9 +295,7 @@ def _patch_query_deps(
             patch(
                 "bgpeek.core.query.resolve_target",
                 new=AsyncMock(
-                    side_effect=lambda t: ResolvedTarget(
-                        original=t, resolved=t, is_hostname=False
-                    )
+                    side_effect=lambda t: ResolvedTarget(original=t, resolved=t, is_hostname=False)
                 ),
             ),
             patch("bgpeek.core.query.validate_target"),
@@ -328,7 +325,6 @@ class TestCredentialResolution:
 
         assert resp.filtered_output is not None
         # SSHClient should have been constructed with the device credential's username
-        from bgpeek.core.query import SSHClient as _patched
 
         # No error means it resolved correctly and reached SSH.
         mock_ssh.send_command.assert_awaited_once()
@@ -336,9 +332,7 @@ class TestCredentialResolution:
     async def test_falls_back_to_global_default_key(self) -> None:
         device = _make_device()
 
-        with _patch_query_deps(
-            device=device, credential=None, default_key_exists=True
-        ) as mock_ssh:
+        with _patch_query_deps(device=device, credential=None, default_key_exists=True) as mock_ssh:
             resp = await execute_query(_make_request())
 
         mock_ssh.send_command.assert_awaited_once()
@@ -347,8 +341,8 @@ class TestCredentialResolution:
     async def test_fails_when_no_credentials_available(self) -> None:
         device = _make_device()
 
-        with _patch_query_deps(
-            device=device, credential=None, default_key_exists=False
+        with (
+            _patch_query_deps(device=device, credential=None, default_key_exists=False),
+            pytest.raises(QueryExecutionError, match="no SSH credentials"),
         ):
-            with pytest.raises(QueryExecutionError, match="no SSH credentials"):
-                await execute_query(_make_request())
+            await execute_query(_make_request())

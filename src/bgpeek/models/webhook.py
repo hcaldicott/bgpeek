@@ -56,9 +56,7 @@ def _check_blocked(addr_str: str) -> None:
         addr = addr.ipv4_mapped
     for net in _BLOCKED_NETWORKS:
         if addr in net:
-            raise ValueError(
-                f"webhook URL cannot target private/reserved network ({net})"
-            )
+            raise ValueError(f"webhook URL cannot target private/reserved network ({net})")
 
 
 class WebhookCreate(WebhookBase):
@@ -83,11 +81,9 @@ class WebhookCreate(WebhookBase):
                 raise
             # hostname is not an IP literal — try DNS resolution
             try:
-                resolved = socket.getaddrinfo(
-                    hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
-                )
+                resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
                 for info in resolved:
-                    _check_blocked(info[4][0])
+                    _check_blocked(str(info[4][0]))
             except socket.gaierror:
                 pass  # DNS failure — allow now, will fail on delivery
         return v

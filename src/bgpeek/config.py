@@ -153,11 +153,23 @@ class Settings(BaseSettings):
     )
 
     # --- SSH ---
-    ssh_username: str = Field(default="looking-glass", description="Default SSH username for devices (fallback when no credential assigned)")
-    keys_dir: Path = Field(default=Path("/etc/bgpeek/keys"), description="Directory containing SSH private key files")
-    encryption_key: str = Field(default="", description="Fernet key for encrypting stored passwords (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')")
-    ssh_timeout: int = Field(default=30, description="Default SSH connection/command timeout in seconds")
-    ssh_timeout_traceroute: int = Field(default=120, description="SSH timeout for traceroute commands")
+    ssh_username: str = Field(
+        default="looking-glass",
+        description="Default SSH username for devices (fallback when no credential assigned)",
+    )
+    keys_dir: Path = Field(
+        default=Path("/etc/bgpeek/keys"), description="Directory containing SSH private key files"
+    )
+    encryption_key: str = Field(
+        default="",
+        description="Fernet key for encrypting stored passwords (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')",
+    )
+    ssh_timeout: int = Field(
+        default=30, description="Default SSH connection/command timeout in seconds"
+    )
+    ssh_timeout_traceroute: int = Field(
+        default=120, description="SSH timeout for traceroute commands"
+    )
     ssh_known_hosts_policy: str = Field(
         default="auto-add",
         description="Host key policy: 'auto-add' (accept new keys) or 'strict' (reject unknown)",
@@ -168,7 +180,9 @@ class Settings(BaseSettings):
     rpki_api_url: str = "https://rpki.cloudflare.com/api/v1/validity"
     rpki_timeout: int = 5  # seconds
     rpki_cache_ttl: int = 3600  # 1 hour
-    rpki_error_cache_ttl: int = Field(default=60, description="Cache TTL for RPKI API errors (seconds)")
+    rpki_error_cache_ttl: int = Field(
+        default=60, description="Cache TTL for RPKI API errors (seconds)"
+    )
 
     # --- LG links ---
     lg_links: str = ""  # JSON: [{"name": "RETN", "url": "https://lg.retn.net"}, ...]

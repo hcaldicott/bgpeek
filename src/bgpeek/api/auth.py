@@ -192,7 +192,7 @@ async def login(
         token=token,
         token_type="bearer",  # noqa: S106
         expires_in=settings.jwt_expire_minutes * 60,
-        user=user,
+        user=UserPublic.model_validate(user, from_attributes=True),
     )
 
 

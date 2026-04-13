@@ -9,13 +9,13 @@ from typing import Any
 
 import structlog
 from netmiko import ConnectHandler  # type: ignore[import-untyped]
-
-from bgpeek.config import settings
 from netmiko.base_connection import BaseConnection  # type: ignore[import-untyped]
 from netmiko.exceptions import (  # type: ignore[import-untyped]
     NetmikoAuthenticationException,
     NetmikoTimeoutException,
 )
+
+from bgpeek.config import settings
 
 logger = structlog.get_logger(__name__)
 

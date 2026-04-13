@@ -13,7 +13,7 @@ from bgpeek.models.credential import (
 )
 
 
-def _mask_password(row: dict) -> dict:
+def _mask_password(row: dict[str, object]) -> dict[str, object]:
     """Replace the password value with ``****`` if it is not None."""
     if row.get("password") is not None:
         row["password"] = "****"  # noqa: S105
@@ -31,9 +31,7 @@ async def list_credentials(pool: asyncpg.Pool) -> list[CredentialWithUsage]:
         ORDER BY c.name ASC
         """
     )
-    return [
-        CredentialWithUsage.model_validate(_mask_password(dict(r))) for r in rows
-    ]
+    return [CredentialWithUsage.model_validate(_mask_password(dict(r))) for r in rows]
 
 
 async def get_credential(pool: asyncpg.Pool, credential_id: int) -> Credential | None:
@@ -129,18 +127,12 @@ async def delete_credential(pool: asyncpg.Pool, credential_id: int) -> bool:
         "SELECT COUNT(*) FROM devices WHERE credential_id = $1", credential_id
     )
     if count:
-        raise ValueError(
-            f"credential {credential_id} is still referenced by {count} device(s)"
-        )
-    result: str = await pool.execute(
-        "DELETE FROM credentials WHERE id = $1", credential_id
-    )
+        raise ValueError(f"credential {credential_id} is still referenced by {count} device(s)")
+    result: str = await pool.execute("DELETE FROM credentials WHERE id = $1", credential_id)
     return result.endswith(" 1")
 
 
-async def get_credential_raw(
-    pool: asyncpg.Pool, credential_id: int
-) -> Credential | None:
+async def get_credential_raw(pool: asyncpg.Pool, credential_id: int) -> Credential | None:
     """Fetch a credential with the password **decrypted** (not masked).
 
     This is for internal use (e.g. SSH test) and must never be exposed directly.
@@ -154,9 +146,7 @@ async def get_credential_raw(
     return Credential.model_validate(data)
 
 
-async def get_credential_for_device(
-    pool: asyncpg.Pool, device_name: str
-) -> Credential | None:
+async def get_credential_for_device(pool: asyncpg.Pool, device_name: str) -> Credential | None:
     """Return the credential linked to a device, with the password **decrypted**.
 
     This is for internal SSH use only and must never be exposed via the API.

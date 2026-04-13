@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from bgpeek.config import settings
 from bgpeek.core.auth import require_role
-from bgpeek.core.encryption import decrypt_password
 from bgpeek.core.ssh import SSHClient, SSHError
 from bgpeek.db import credentials as crud
 from bgpeek.db import devices as device_crud
@@ -106,8 +105,8 @@ async def delete_credential(
 @router.post("/{credential_id}/test")
 async def test_credential(
     credential_id: int,
-    device_id: int = Query(..., description="Device to test SSH connectivity against"),  # noqa: B008
-    _caller: User = Depends(_admin),  # noqa: B008
+    device_id: int = Query(..., description="Device to test SSH connectivity against"),  # noqa: B008, PT028
+    _caller: User = Depends(_admin),  # noqa: B008, PT019, PT028
 ) -> dict[str, object]:
     """Test SSH connectivity using this credential against a specific device."""
     # Fetch credential with decrypted password (internal use only).
@@ -127,7 +126,7 @@ async def test_credential(
             return {"success": False, "message": f"key file not found: {raw_cred.key_name}"}
 
     # Ensure we have at least one auth method for the SSH client.
-    password = raw_cred.password if raw_cred.password and raw_cred.password != "****" else None
+    password = raw_cred.password if raw_cred.password and raw_cred.password != "****" else None  # noqa: S105
     if password is None and key_path is None:
         return {"success": False, "message": "credential has no usable password or key"}
 

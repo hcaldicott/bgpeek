@@ -12,6 +12,7 @@ treated as available.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import structlog
 
@@ -26,7 +27,7 @@ def _key(device_name: str) -> str:
     return f"{_KEY_PREFIX}:{device_name}"
 
 
-async def _get_redis():  # noqa: ANN202
+async def _get_redis() -> Any | None:
     """Return the Redis client or ``None`` if unavailable."""
     try:
         from bgpeek.core.redis import get_redis

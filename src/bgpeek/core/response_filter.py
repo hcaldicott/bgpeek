@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from bgpeek.config import settings
-from bgpeek.models.query import BGPRoute, QueryResponse, QueryType, StoredResult
+from bgpeek.models.query import QueryResponse, QueryType, StoredResult
 from bgpeek.models.user import UserRole
 
 # RFC1918 + RFC6598 (CGNAT) patterns for masking internal IPs
@@ -85,7 +86,7 @@ def filter_stored_result(result: StoredResult, user_role: str | None) -> StoredR
     return StoredResult.model_validate(data)
 
 
-def _filter_bgp(data: dict, level: str) -> dict:
+def _filter_bgp(data: dict[str, Any], level: str) -> dict[str, Any]:
     """Filter BGP response fields."""
     if level == "restricted":
         # Strip communities, LP, MED from parsed routes
@@ -101,7 +102,7 @@ def _filter_bgp(data: dict, level: str) -> dict:
     return data
 
 
-def _filter_ping(data: dict, level: str) -> dict:
+def _filter_ping(data: dict[str, Any], level: str) -> dict[str, Any]:
     """Filter ping output to summary only for restricted level."""
     if level == "restricted":
         output = data.get("filtered_output", "")
@@ -117,17 +118,25 @@ def _extract_ping_summary(output: str) -> str:
     for line in lines:
         lower = line.lower()
         # Match summary lines across vendors
-        if any(kw in lower for kw in [
-            "packet loss", "packets transmitted", "received",
-            "min/avg/max", "round-trip", "rtt",
-            # Huawei
-            "packet(s) transmitted", "packet(s) received",
-        ]):
+        if any(
+            kw in lower
+            for kw in [
+                "packet loss",
+                "packets transmitted",
+                "received",
+                "min/avg/max",
+                "round-trip",
+                "rtt",
+                # Huawei
+                "packet(s) transmitted",
+                "packet(s) received",
+            ]
+        ):
             summary_lines.append(line)
     return "\n".join(summary_lines) if summary_lines else output
 
 
-def _filter_traceroute(data: dict, level: str) -> dict:
+def _filter_traceroute(data: dict[str, Any], level: str) -> dict[str, Any]:
     """Mask RFC1918/CGNAT addresses in traceroute output."""
     if level == "restricted":
         output = data.get("filtered_output", "")

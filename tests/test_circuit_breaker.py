@@ -32,31 +32,37 @@ def _mock_redis() -> AsyncMock:
 async def test_is_available_when_no_failures() -> None:
     redis = _mock_redis()
     redis.zcount = AsyncMock(return_value=0)
-    with patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis):
-        with patch("bgpeek.core.circuit_breaker.settings") as mock_settings:
-            mock_settings.circuit_breaker_enabled = True
-            mock_settings.circuit_breaker_threshold = 3
-            mock_settings.circuit_breaker_cooldown = 300
-            assert await is_device_available("rt1") is True
+    with (
+        patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis),
+        patch("bgpeek.core.circuit_breaker.settings") as mock_settings,
+    ):
+        mock_settings.circuit_breaker_enabled = True
+        mock_settings.circuit_breaker_threshold = 3
+        mock_settings.circuit_breaker_cooldown = 300
+        assert await is_device_available("rt1") is True
 
 
 async def test_unavailable_after_threshold_failures() -> None:
     redis = _mock_redis()
     redis.zcount = AsyncMock(return_value=3)
-    with patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis):
-        with patch("bgpeek.core.circuit_breaker.settings") as mock_settings:
-            mock_settings.circuit_breaker_enabled = True
-            mock_settings.circuit_breaker_threshold = 3
-            mock_settings.circuit_breaker_cooldown = 300
-            assert await is_device_available("rt1") is False
+    with (
+        patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis),
+        patch("bgpeek.core.circuit_breaker.settings") as mock_settings,
+    ):
+        mock_settings.circuit_breaker_enabled = True
+        mock_settings.circuit_breaker_threshold = 3
+        mock_settings.circuit_breaker_cooldown = 300
+        assert await is_device_available("rt1") is False
 
 
 async def test_record_success_clears_failures() -> None:
     redis = _mock_redis()
-    with patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis):
-        with patch("bgpeek.core.circuit_breaker.settings") as mock_settings:
-            mock_settings.circuit_breaker_enabled = True
-            await record_success("rt1")
+    with (
+        patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis),
+        patch("bgpeek.core.circuit_breaker.settings") as mock_settings,
+    ):
+        mock_settings.circuit_breaker_enabled = True
+        await record_success("rt1")
     redis.delete.assert_awaited_once_with("bgpeek:cb:rt1")
 
 
@@ -64,22 +70,26 @@ async def test_record_failure_uses_pipeline() -> None:
     redis = _mock_redis()
     ctx = redis.pipeline()
     pipe = await ctx.__aenter__()
-    with patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis):
-        with patch("bgpeek.core.circuit_breaker.settings") as mock_settings:
-            mock_settings.circuit_breaker_enabled = True
-            mock_settings.circuit_breaker_cooldown = 300
-            mock_settings.circuit_breaker_threshold = 3
-            await record_failure("rt1")
+    with (
+        patch("bgpeek.core.circuit_breaker._get_redis", return_value=redis),
+        patch("bgpeek.core.circuit_breaker.settings") as mock_settings,
+    ):
+        mock_settings.circuit_breaker_enabled = True
+        mock_settings.circuit_breaker_cooldown = 300
+        mock_settings.circuit_breaker_threshold = 3
+        await record_failure("rt1")
     pipe.zadd.assert_called_once()
     pipe.zremrangebyscore.assert_called_once()
     pipe.execute.assert_awaited_once()
 
 
 async def test_graceful_degradation_when_redis_unavailable() -> None:
-    with patch("bgpeek.core.circuit_breaker._get_redis", return_value=None):
-        with patch("bgpeek.core.circuit_breaker.settings") as mock_settings:
-            mock_settings.circuit_breaker_enabled = True
-            assert await is_device_available("rt1") is True
+    with (
+        patch("bgpeek.core.circuit_breaker._get_redis", return_value=None),
+        patch("bgpeek.core.circuit_breaker.settings") as mock_settings,
+    ):
+        mock_settings.circuit_breaker_enabled = True
+        assert await is_device_available("rt1") is True
 
 
 async def test_disabled_breaker_always_returns_true() -> None:

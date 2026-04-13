@@ -33,9 +33,7 @@ from bgpeek.models.user import User
 
 log = structlog.get_logger(__name__)
 
-_IP_PATTERN = re.compile(
-    r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\b"
-)
+_IP_PATTERN = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\b")
 
 
 def _friendly_error(detail: str, t: dict[str, str]) -> str:
@@ -71,6 +69,7 @@ def _friendly_error(detail: str, t: dict[str, str]) -> str:
         return t.get("error_ssh_connection", detail)
     # Fallback: strip IP addresses from unmatched errors for safety
     return _IP_PATTERN.sub("[redacted]", detail)
+
 
 router = APIRouter(tags=["query"])
 templates = Jinja2Templates(directory=str(settings.templates_dir))

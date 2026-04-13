@@ -1,4 +1,5 @@
 """Tests for role-based output visibility (response_filter)."""
+# ruff: noqa: C408 — dict() as readable kwargs-style factory is intentional
 
 from __future__ import annotations
 
@@ -97,6 +98,7 @@ def _make_traceroute_response(**overrides) -> QueryResponse:
 
 # --- 1. Privileged roles see everything ---
 
+
 @pytest.mark.parametrize("role", ["admin", "noc"])
 def test_privileged_role_no_filtering(role: str) -> None:
     resp = _make_bgp_response()
@@ -112,6 +114,7 @@ def test_privileged_role_no_filtering(role: str) -> None:
 
 # --- 2. Restricted BGP strips communities, LP, MED ---
 
+
 def test_restricted_bgp_strips_communities_lp_med() -> None:
     resp = _make_bgp_response()
     with patch("bgpeek.core.response_filter.settings") as mock_settings:
@@ -124,6 +127,7 @@ def test_restricted_bgp_strips_communities_lp_med() -> None:
 
 
 # --- 3. Restricted BGP keeps core fields ---
+
 
 def test_restricted_bgp_keeps_prefix_nexthop_aspath() -> None:
     resp = _make_bgp_response()
@@ -141,6 +145,7 @@ def test_restricted_bgp_keeps_prefix_nexthop_aspath() -> None:
 
 # --- 4. Restricted hides raw_output ---
 
+
 def test_restricted_hides_raw_output() -> None:
     resp = _make_bgp_response()
     with patch("bgpeek.core.response_filter.settings") as mock_settings:
@@ -151,6 +156,7 @@ def test_restricted_hides_raw_output() -> None:
 
 
 # --- 5. Restricted ping: summary only ---
+
 
 def test_restricted_ping_summary_only() -> None:
     resp = _make_ping_response()
@@ -167,6 +173,7 @@ def test_restricted_ping_summary_only() -> None:
 
 
 # --- 6. Restricted traceroute masks RFC1918 ---
+
 
 def test_restricted_traceroute_masks_rfc1918() -> None:
     resp = _make_traceroute_response()
@@ -187,6 +194,7 @@ def test_restricted_traceroute_masks_rfc1918() -> None:
 
 # --- 7. Standard keeps all parsed fields ---
 
+
 def test_standard_keeps_all_parsed_fields() -> None:
     resp = _make_bgp_response()
     with patch("bgpeek.core.response_filter.settings") as mock_settings:
@@ -201,6 +209,7 @@ def test_standard_keeps_all_parsed_fields() -> None:
 
 # --- 8. Standard hides raw_output ---
 
+
 def test_standard_hides_raw_output() -> None:
     resp = _make_bgp_response()
     with patch("bgpeek.core.response_filter.settings") as mock_settings:
@@ -211,6 +220,7 @@ def test_standard_hides_raw_output() -> None:
 
 
 # --- 9. Full level: no filtering even for public ---
+
 
 def test_full_level_no_filtering() -> None:
     resp = _make_bgp_response()
@@ -225,6 +235,7 @@ def test_full_level_no_filtering() -> None:
 
 
 # --- 10. None role treated as public ---
+
 
 def test_none_role_treated_as_public() -> None:
     resp = _make_bgp_response()

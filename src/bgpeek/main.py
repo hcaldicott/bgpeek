@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -15,7 +16,7 @@ from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore[import-untyped]
+from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from bgpeek import __version__
@@ -100,8 +101,8 @@ async def _ensure_default_credential() -> None:
         log.info("no default SSH key found, skipping auto-credential creation")
         return
 
-    from bgpeek.models.credential import CredentialCreate
     from bgpeek.db.credentials import create_credential
+    from bgpeek.models.credential import CredentialCreate
 
     cred = await create_credential(
         pool,
@@ -226,13 +227,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     log.info("bgpeek starting", version=__version__, host=settings.host, port=settings.port)
 
     # Security: refuse to start with default secrets
-    _INSECURE_DEFAULTS = {"change-me-in-production", "change-me-session-secret"}
+    _insecure_defaults = {"change-me-in-production", "change-me-session-secret"}  # noqa: S105
     if not settings.debug:
-        if settings.jwt_secret in _INSECURE_DEFAULTS:
-            log.critical("BGPEEK_JWT_SECRET is set to the default value — refusing to start. Set a strong secret.")
+        if settings.jwt_secret in _insecure_defaults:
+            log.critical(
+                "BGPEEK_JWT_SECRET is set to the default value — refusing to start. Set a strong secret."
+            )
             raise SystemExit(1)
-        if settings.session_secret in _INSECURE_DEFAULTS:
-            log.critical("BGPEEK_SESSION_SECRET is set to the default value — refusing to start. Set a strong secret.")
+        if settings.session_secret in _insecure_defaults:
+            log.critical(
+                "BGPEEK_SESSION_SECRET is set to the default value — refusing to start. Set a strong secret."
+            )
             raise SystemExit(1)
 
     await init_pool(
@@ -271,10 +276,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Shutdown
     if _cleanup_task is not None:
         _cleanup_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await _cleanup_task
-        except asyncio.CancelledError:
-            pass
 
     await shutdown_webhooks()
     await close_redis()
@@ -345,7 +348,7 @@ async def health(deep: bool = False) -> dict[str, object]:
     # Redis check
     try:
         r = get_redis()
-        await r.ping()
+        await r.ping()  # type: ignore[misc]
         result["redis"] = "ok"
     except Exception:
         result["redis"] = "error"
@@ -363,7 +366,7 @@ async def health(deep: bool = False) -> dict[str, object]:
 async def index(
     request: Request,
     user: User | None = Depends(optional_auth),  # noqa: B008
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
     """Main looking glass form — loads devices from DB for the dropdown."""
     if user is None:
         if settings.access_mode == "closed":
@@ -372,7 +375,9 @@ async def index(
             user = guest_user()
     include_restricted = user is not None and user.role in (UserRole.ADMIN, UserRole.NOC)
     try:
-        devices = await device_crud.list_devices(get_pool(), enabled_only=True, include_restricted=include_restricted)
+        devices = await device_crud.list_devices(
+            get_pool(), enabled_only=True, include_restricted=include_restricted
+        )
     except RuntimeError:
         devices = []
 
@@ -380,8 +385,7 @@ async def index(
     # Within each region, devices sorted by (location, name).
     sorted_devices = sorted(devices, key=lambda d: (d.region or "", d.location or "", d.name))
     device_groups = [
-        (region, list(grp))
-        for region, grp in groupby(sorted_devices, key=attrgetter("region"))
+        (region, list(grp)) for region, grp in groupby(sorted_devices, key=attrgetter("region"))
     ]
 
     return templates.TemplateResponse(
@@ -408,7 +412,7 @@ async def history(
     offset: int = 0,
     partial: int = 0,
     user: User | None = Depends(optional_auth),  # noqa: B008
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
     """Query history page with offset-based pagination."""
     if user is None:
         if settings.access_mode == "closed":

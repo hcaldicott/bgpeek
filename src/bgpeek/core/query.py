@@ -204,9 +204,7 @@ async def execute_query(
 
         # 5. Execute SSH
         cmd_timeout = (
-            settings.ssh_timeout_traceroute
-            if request.query_type == QueryType.TRACEROUTE
-            else None
+            settings.ssh_timeout_traceroute if request.query_type == QueryType.TRACEROUTE else None
         )
         async with SSHClient(
             host=str(device.address),
