@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -34,6 +35,12 @@ router = APIRouter(tags=["query"])
 templates = Jinja2Templates(directory=str(settings.templates_dir))
 
 
+def _ssh_key_path() -> Path | None:
+    """Return the SSH private key path if it exists in config_dir."""
+    key = settings.config_dir / "id_rsa"
+    return key if key.is_file() else None
+
+
 @router.post("/api/query", response_model=QueryResponse)
 async def api_query(
     request: Request,
@@ -50,6 +57,7 @@ async def api_query(
             user_id=caller.id,
             username=caller.username,
             user_role=caller.role.value,
+            ssh_key_path=_ssh_key_path(),
         )
         result_id = await _persist_result(result, caller.id, caller.username)
         result.result_id = str(result_id)
@@ -101,6 +109,7 @@ async def htmx_query(
             user_id=caller.id if caller else None,
             username=caller.username if caller else None,
             user_role=caller.role.value if caller else None,
+            ssh_key_path=_ssh_key_path(),
         )
         result_id = await _persist_result(
             result,
@@ -159,6 +168,7 @@ async def api_multi_query(
         user_id=caller.id,
         username=caller.username,
         user_role=caller.role.value,
+        ssh_key_path=_ssh_key_path(),
     )
     for result in response.results:
         result_id = await _persist_result(result, caller.id, caller.username)
@@ -211,6 +221,7 @@ async def htmx_multi_query(
         user_id=caller.id if caller else None,
         username=caller.username if caller else None,
         user_role=caller.role.value if caller else None,
+        ssh_key_path=_ssh_key_path(),
     )
     for result in response.results:
         result_id = await _persist_result(

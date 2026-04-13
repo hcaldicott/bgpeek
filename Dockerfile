@@ -46,6 +46,7 @@ WORKDIR /app
 COPY --from=builder --chown=bgpeek:bgpeek /opt/venv /opt/venv
 COPY --from=builder --chown=bgpeek:bgpeek /app/src /app/src
 COPY --chown=bgpeek:bgpeek pyproject.toml README.md ./
+COPY --chown=bgpeek:bgpeek migrations ./migrations
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
