@@ -7,6 +7,8 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from itertools import groupby
+from operator import attrgetter
 
 import structlog
 from fastapi import Depends, FastAPI, Request, Response
@@ -338,12 +340,21 @@ async def index(
         devices = await device_crud.list_devices(get_pool(), enabled_only=True, include_restricted=include_restricted)
     except RuntimeError:
         devices = []
+
+    # Group devices by location for <optgroup> rendering
+    sorted_devices = sorted(devices, key=lambda d: (d.location or "", d.name))
+    device_groups = [
+        (loc, list(grp))
+        for loc, grp in groupby(sorted_devices, key=attrgetter("location"))
+    ]
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "version": __version__,
             "devices": devices,
+            "device_groups": device_groups,
             "user": user,
             "t": request.state.t,
             "lang": request.state.lang,

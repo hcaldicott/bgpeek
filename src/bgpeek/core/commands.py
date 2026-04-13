@@ -10,7 +10,9 @@ _COMMAND_TABLE: dict[tuple[str, QueryType], str] = {
     # --- Juniper Junos ---
     ("juniper_junos", QueryType.BGP_ROUTE): "show route protocol bgp table inet.0 {target} detail",
     ("juniper_junos", QueryType.PING): "ping {target} count 5",
-    ("juniper_junos", QueryType.TRACEROUTE): "traceroute {target}",
+    # NOTE: `traceroute monitor` may need expect_string in SSHClient.send_command
+    # due to non-standard output format (interactive summary table).
+    ("juniper_junos", QueryType.TRACEROUTE): "traceroute monitor {target} count 5 summary",
     # --- Cisco IOS / IOS-XE ---
     ("cisco_ios", QueryType.BGP_ROUTE): "show bgp ipv4 unicast {target}",
     ("cisco_ios", QueryType.PING): "ping {target} repeat 5",

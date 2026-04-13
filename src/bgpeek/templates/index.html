@@ -90,10 +90,18 @@
                                    focus:border-slate-500 focus:ring-1 focus:ring-slate-500
                                    dark:focus:border-slate-400 dark:focus:ring-slate-400
                                    h-[120px] overflow-y-auto scrollbar-thin">
-                        {% for device in devices %}
-                        <option value="{{ device.name }}">
-                            {{ device.name }}{% if device.location %} ({{ device.location }}){% endif %}
-                        </option>
+                        {% for location, group_devices in device_groups %}
+                        {% if location %}
+                        <optgroup label="{{ location }}">
+                            {% for device in group_devices %}
+                            <option value="{{ device.name }}">{{ device.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% else %}
+                        {% for device in group_devices %}
+                        <option value="{{ device.name }}">{{ device.name }}</option>
+                        {% endfor %}
+                        {% endif %}
                         {% endfor %}
                     </select>
                     <div id="device-count" class="mt-1 text-xs text-slate-400 dark:text-slate-500 h-4"></div>
