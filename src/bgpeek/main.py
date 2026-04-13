@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,6 +13,7 @@ from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore[import-untyped]
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from bgpeek import __version__
@@ -22,8 +25,9 @@ from bgpeek.config import settings
 from bgpeek.core.auth import optional_auth
 from bgpeek.core.i18n import SUPPORTED_LANGS, detect_language, get_translations
 from bgpeek.core.oidc import setup_oidc
-from bgpeek.core.redis import close_redis, init_redis
+from bgpeek.core.redis import close_redis, get_redis, init_redis
 from bgpeek.core.time_utils import timeago
+from bgpeek.core.webhooks import shutdown as shutdown_webhooks
 from bgpeek.db import devices as device_crud
 from bgpeek.db.pool import close_pool, get_pool, init_pool
 from bgpeek.db.results import list_results
@@ -59,6 +63,41 @@ templates.env.filters["timeago"] = timeago
 _LANG_COOKIE = "bgpeek_lang"
 _LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60  # 1 year
 
+# ---------------------------------------------------------------------------
+# Cleanup task handle
+# ---------------------------------------------------------------------------
+_cleanup_task: asyncio.Task[None] | None = None
+
+
+async def _periodic_cleanup() -> None:
+    """Background loop: clean up expired results and old audit entries."""
+    from bgpeek.db.audit import cleanup_old_entries
+    from bgpeek.db.results import cleanup_expired
+
+    while True:
+        await asyncio.sleep(3600)  # run every hour
+        try:
+            pool = get_pool()
+            removed = await cleanup_expired(pool)
+            if removed:
+                log.info("cleanup_expired_results", removed=removed)
+        except Exception:
+            log.warning("cleanup_expired_results_failed", exc_info=True)
+
+        if settings.audit_ttl_days > 0:
+            try:
+                pool = get_pool()
+                removed = await cleanup_old_entries(pool, settings.audit_ttl_days)
+                if removed:
+                    log.info("cleanup_old_audit", removed=removed)
+            except Exception:
+                log.warning("cleanup_old_audit_failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
+
 
 class I18nMiddleware(BaseHTTPMiddleware):
     """Detect language preference and attach ``t`` / ``lang`` to request state."""
@@ -88,20 +127,77 @@ class I18nMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Attach a unique request ID to every request for log correlation."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+
+        # Bind to structlog context for all downstream log calls
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Application startup and shutdown hooks."""
+    global _cleanup_task
+
     log.info("bgpeek starting", version=__version__, host=settings.host, port=settings.port)
-    await init_pool(settings.database_url)
+    await init_pool(
+        settings.database_url,
+        min_size=settings.db_pool_min,
+        max_size=settings.db_pool_max,
+    )
+
+    # Auto-migrate on startup
+    if settings.auto_migrate:
+        try:
+            from bgpeek.db.migrate import apply_migrations
+
+            applied = await asyncio.to_thread(apply_migrations)
+            if applied:
+                log.info("auto_migrate_applied", count=applied)
+        except Exception:
+            log.error("auto_migrate_failed", exc_info=True)
+
     try:
         await init_redis(settings.redis_url)
     except Exception:
         log.warning("redis unavailable — cache disabled", exc_info=True)
+
+    # Start periodic cleanup
+    _cleanup_task = asyncio.create_task(_periodic_cleanup())
+
     yield
+
+    # Shutdown
+    if _cleanup_task is not None:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+    await shutdown_webhooks()
     await close_redis()
     await close_pool()
     log.info("bgpeek shutting down")
 
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 
 app = FastAPI(
     title="bgpeek",
@@ -110,10 +206,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(I18nMiddleware)
 
 # OIDC must be set up before routes are registered (needs SessionMiddleware).
 setup_oidc(app)
+
+# Prometheus metrics
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 app.mount(
     "/static",
@@ -127,10 +227,43 @@ app.include_router(query_api.router)
 app.include_router(webhooks_api.router)
 
 
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+
 @app.get("/api/health", response_class=JSONResponse)
-async def health() -> dict[str, str]:
-    """Liveness probe."""
-    return {"status": "ok", "version": __version__}
+async def health(deep: bool = False) -> dict[str, object]:
+    """Liveness probe. Pass ?deep=true for DB + Redis connectivity check."""
+    result: dict[str, object] = {"status": "ok", "version": __version__}
+
+    if not deep:
+        return result
+
+    # DB check
+    try:
+        pool = get_pool()
+        await pool.fetchval("SELECT 1")
+        result["database"] = "ok"
+    except Exception as exc:
+        result["database"] = f"error: {exc}"
+        result["status"] = "degraded"
+
+    # Redis check
+    try:
+        r = get_redis()
+        await r.ping()
+        result["redis"] = "ok"
+    except Exception as exc:
+        result["redis"] = f"error: {exc}"
+        result["status"] = "degraded"
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Pages
+# ---------------------------------------------------------------------------
 
 
 @app.get("/", response_class=HTMLResponse)

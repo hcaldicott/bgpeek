@@ -106,3 +106,12 @@ async def count_audit_entries(
     query = f"SELECT COUNT(*) FROM audit_log{where}"  # noqa: S608
     result = await pool.fetchval(query, *values)
     return int(result)
+
+
+async def cleanup_old_entries(pool: asyncpg.Pool, ttl_days: int) -> int:
+    """Delete audit entries older than ``ttl_days``. Returns deleted row count."""
+    result: str = await pool.execute(
+        "DELETE FROM audit_log WHERE timestamp < now() - make_interval(days => $1)",
+        ttl_days,
+    )
+    return int(result.split()[-1])
