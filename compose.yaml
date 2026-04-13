@@ -32,6 +32,8 @@ services:
       BGPEEK_PORT: "8000"
       BGPEEK_DATABASE_URL: "postgresql://${POSTGRES_USER:-bgpeek}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-bgpeek}"
       BGPEEK_REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ${BGPEEK_KEYS_DIR:-./secrets}:/etc/bgpeek/keys:ro
     ports:
       - "8000:8000"
     depends_on:

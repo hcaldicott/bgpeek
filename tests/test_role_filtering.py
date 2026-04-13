@@ -42,6 +42,19 @@ def _mock_ssh(output: str = _RAW_BGP) -> AsyncMock:
     return mock
 
 
+def _mock_credential() -> AsyncMock:
+    from datetime import UTC, datetime
+
+    from bgpeek.models.credential import Credential
+
+    return AsyncMock(
+        return_value=Credential(
+            id=1, name="test", username="looking-glass", auth_type="key",
+            key_name="test.key", created_at=datetime.now(tz=UTC), updated_at=datetime.now(tz=UTC),
+        )
+    )
+
+
 @pytest.fixture(autouse=True)
 def _patch_pool(pool: asyncpg.Pool) -> None:  # noqa: PT004
     import bgpeek.db.pool as pool_mod
@@ -52,7 +65,7 @@ def _patch_pool(pool: asyncpg.Pool) -> None:  # noqa: PT004
 async def test_public_role_filters_specific_prefixes(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()), patch("bgpeek.core.query.get_credential_for_device", _mock_credential()):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
             user_role="public",
@@ -68,7 +81,7 @@ async def test_public_role_filters_specific_prefixes(pool: asyncpg.Pool) -> None
 async def test_none_role_filters_specific_prefixes(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()), patch("bgpeek.core.query.get_credential_for_device", _mock_credential()):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
             user_role=None,
@@ -82,7 +95,7 @@ async def test_none_role_filters_specific_prefixes(pool: asyncpg.Pool) -> None:
 async def test_noc_role_sees_all_prefixes(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()), patch("bgpeek.core.query.get_credential_for_device", _mock_credential()):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
             user_role="noc",
@@ -99,7 +112,7 @@ async def test_noc_role_sees_all_prefixes(pool: asyncpg.Pool) -> None:
 async def test_admin_role_sees_all_prefixes(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()), patch("bgpeek.core.query.get_credential_for_device", _mock_credential()):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
             user_role="admin",
@@ -114,7 +127,7 @@ async def test_admin_role_sees_all_prefixes(pool: asyncpg.Pool) -> None:
 async def test_unknown_role_filters_like_public(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()), patch("bgpeek.core.query.get_credential_for_device", _mock_credential()):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
             user_role="unknown_role",
@@ -128,7 +141,7 @@ async def test_privileged_role_ping_unchanged(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
     raw = "PING 8.8.8.8: 5 packets\n8.8.8.128/25 in output"
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh(raw)):
+    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh(raw)), patch("bgpeek.core.query.get_credential_for_device", _mock_credential()):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.PING, target="8.8.8.8"),
             user_role="noc",

@@ -9,8 +9,8 @@ import structlog
 
 from bgpeek.config import settings
 from bgpeek.core.bgp_parser import parse_bgp_output
-from bgpeek.core.circuit_breaker import is_device_available, record_failure, record_success
 from bgpeek.core.cache import get_cached, set_cached
+from bgpeek.core.circuit_breaker import is_device_available, record_failure, record_success
 from bgpeek.core.commands import UnsupportedPlatformError, build_command
 from bgpeek.core.dns import DNSResolutionError, resolve_target
 from bgpeek.core.output_filter import filter_route_text
@@ -19,6 +19,7 @@ from bgpeek.core.ssh import SSHClient, SSHError
 from bgpeek.core.validators import TargetValidationError, validate_target
 from bgpeek.db import devices as device_crud
 from bgpeek.db.audit import log_audit
+from bgpeek.db.credentials import get_credential_for_device
 from bgpeek.db.pool import get_pool
 from bgpeek.models.audit import AuditAction, AuditEntryCreate
 from bgpeek.models.query import BGPRoute, QueryRequest, QueryResponse, QueryType
@@ -141,7 +142,32 @@ async def execute_query(
         # 3. Build command (use resolved IP for the actual SSH command)
         command = build_command(device.platform, request.query_type, effective_target)
 
-        # 4. Execute SSH
+        # 4. Resolve SSH credentials: device-level → global default → fail
+        ssh_user = settings.ssh_username
+        effective_key: Path | None = ssh_key_path
+        effective_password: str | None = ssh_password
+
+        cred = await get_credential_for_device(pool, device.name)
+        if cred is not None:
+            ssh_user = cred.username
+            if cred.key_name:
+                effective_key = settings.keys_dir / cred.key_name
+            if cred.password:
+                effective_password = cred.password
+        elif effective_key is None and effective_password is None:
+            # No credential assigned, try global default key
+            default_key = settings.keys_dir / "default.key"
+            if default_key.is_file():
+                effective_key = default_key
+
+        if effective_key is None and effective_password is None:
+            raise QueryExecutionError(
+                f"no SSH credentials configured for device {device.name!r}",
+                target=request.target,
+                device_name=request.device_name,
+            )
+
+        # 5. Execute SSH
         cmd_timeout = (
             settings.ssh_timeout_traceroute
             if request.query_type == QueryType.TRACEROUTE
@@ -149,18 +175,18 @@ async def execute_query(
         )
         async with SSHClient(
             host=str(device.address),
-            username=settings.ssh_username,
+            username=ssh_user,
             platform=device.platform,
             port=device.port,
-            key_path=ssh_key_path,
-            password=ssh_password,
+            key_path=effective_key,
+            password=effective_password,
             timeout=settings.ssh_timeout,
         ) as ssh:
             raw_output = await ssh.send_command(command, timeout=cmd_timeout)
 
         await record_success(device.name)
 
-        # 5. Filter output (privileged roles bypass prefix filtering)
+        # 6. Filter output (privileged roles bypass prefix filtering)
         if request.query_type == QueryType.BGP_ROUTE and not _role_bypasses_filter(user_role):
             filtered_output = filter_route_text(raw_output)
         else:
@@ -168,20 +194,20 @@ async def execute_query(
 
         runtime_ms = int((time.monotonic() - start) * 1000)
 
-        # 6. Audit (success)
+        # 7. Audit (success)
         audit_entry.success = True
         audit_entry.runtime_ms = runtime_ms
         audit_entry.response_bytes = len(filtered_output.encode())
         await log_audit(pool, audit_entry)
 
-        # 7. Parse structured BGP routes (best-effort)
+        # 8. Parse structured BGP routes (best-effort)
         parsed_routes: list[BGPRoute] = []
         if request.query_type == QueryType.BGP_ROUTE:
             parsed_routes = parse_bgp_output(filtered_output, platform=device.platform)
             if parsed_routes:
                 parsed_routes = await validate_routes(parsed_routes)
 
-        # 8. Response
+        # 9. Response
         response = QueryResponse(
             device_name=device.name,
             query_type=request.query_type,
@@ -194,10 +220,10 @@ async def execute_query(
             resolved_target=resolved_target,
         )
 
-        # 9. Store in cache
+        # 10. Store in cache
         await set_cached(request, response)
 
-        # 10. Dispatch webhook (fire-and-forget)
+        # 11. Dispatch webhook (fire-and-forget)
         from bgpeek.core.webhooks import dispatch_webhook
 
         await dispatch_webhook(

@@ -45,6 +45,25 @@ def _patch_pool(pool: asyncpg.Pool) -> None:  # noqa: PT004
     pool_mod._pool = pool
 
 
+def _mock_credential() -> AsyncMock:
+    """Return a mock credential that satisfies the SSH resolution logic."""
+    from datetime import UTC, datetime
+
+    from bgpeek.models.credential import Credential
+
+    return AsyncMock(
+        return_value=Credential(
+            id=1,
+            name="test",
+            username="looking-glass",
+            auth_type="key",
+            key_name="test.key",
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        )
+    )
+
+
 async def test_parallel_two_devices(pool: asyncpg.Pool) -> None:
     await _seed_device(pool, "rt1", "10.0.0.1")
     await _seed_device(pool, "rt2", "10.0.0.2")
@@ -55,7 +74,10 @@ async def test_parallel_two_devices(pool: asyncpg.Pool) -> None:
         target="8.8.8.0/24",
     )
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         resp = await execute_parallel(req)
 
     assert isinstance(resp, MultiQueryResponse)
@@ -76,7 +98,10 @@ async def test_parallel_single_device(pool: asyncpg.Pool) -> None:
         target="8.8.8.8",
     )
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING 8.8.8.8: 5 packets")):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING 8.8.8.8: 5 packets")),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         resp = await execute_parallel(req)
 
     assert resp.device_count == 1
@@ -94,7 +119,10 @@ async def test_parallel_partial_failure(pool: asyncpg.Pool) -> None:
         target="8.8.8.8",
     )
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING ok")):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING ok")),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         resp = await execute_parallel(req)
 
     assert len(resp.results) == 1
@@ -115,7 +143,10 @@ async def test_parallel_semaphore_limits_concurrency(pool: asyncpg.Pool) -> None
         target="8.8.8.8",
     )
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING ok")):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING ok")),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         resp = await execute_parallel(req, max_concurrency=1)
 
     assert len(resp.results) == 3

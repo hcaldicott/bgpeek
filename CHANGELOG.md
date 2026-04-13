@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-04-13
+
+### Added
+
+- SSH credential management as a first-class entity (`credentials` table)
+- Per-device credential assignment via `credential_id` foreign key
+- Credential resolution chain: device-level → global default → clear error
+- Admin-only CRUD API for credentials (`/api/credentials`)
+- SSH connectivity test endpoint (`POST /api/credentials/{id}/test?device_id=N`)
+- Fernet encryption for stored SSH passwords (`BGPEEK_ENCRYPTION_KEY`)
+- Configurable keys directory (`BGPEEK_KEYS_DIR`, default `/etc/bgpeek/keys`)
+- Auto-create "default" credential from global config on first startup
+- Auto-assign default credential to devices with no credential
+- Keys directory volume mount in compose.yaml (`./secrets:/etc/bgpeek/keys:ro`)
+
+### Changed
+
+- Query pipeline resolves SSH credentials from device instead of global config
+- Device model now includes optional `credential_id` field
+
 ## [1.0.1] - 2026-04-12
 
 ### Added
@@ -61,5 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark/light theme toggle
 - Docker multi-stage build
 
+[1.1.0]: https://github.com/xeonerix/bgpeek/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/xeonerix/bgpeek/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/xeonerix/bgpeek/releases/tag/v1.0.0

@@ -37,6 +37,25 @@ def _mock_ssh(output: str = "mock bgp output\n8.8.8.0/24 via 10.0.0.1") -> Async
     return mock
 
 
+def _mock_credential() -> AsyncMock:
+    """Return a mock credential for SSH resolution."""
+    from datetime import UTC, datetime
+
+    from bgpeek.models.credential import Credential
+
+    return AsyncMock(
+        return_value=Credential(
+            id=1,
+            name="test",
+            username="looking-glass",
+            auth_type="key",
+            key_name="test.key",
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        )
+    )
+
+
 @pytest.fixture(autouse=True)
 def _patch_pool(pool: asyncpg.Pool) -> None:  # noqa: PT004
     """Inject test pool as the global pool so get_pool() works."""
@@ -48,7 +67,10 @@ def _patch_pool(pool: asyncpg.Pool) -> None:  # noqa: PT004
 async def test_query_bgp_success(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
         )
@@ -68,7 +90,10 @@ async def test_query_filters_specific_routes(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
     raw = "8.8.8.0/24 via 10.0.0.1\n8.8.8.128/25 via 10.0.0.2\n1.1.1.0/24 via 10.0.0.3"
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh(raw)):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh(raw)),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
         )
@@ -126,7 +151,10 @@ async def test_query_ping_skips_validation(pool: asyncpg.Pool) -> None:
     """Ping/traceroute do not validate target as prefix (no bogon check)."""
     await _seed_device(pool)
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING 10.0.0.1: 5 packets")):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh("PING 10.0.0.1: 5 packets")),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.PING, target="10.0.0.1"),
         )
@@ -140,7 +168,10 @@ async def test_query_ping_no_output_filter(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
     raw = "PING 1.1.1.0/25: 5 packets\n8.8.8.128/25 line in output"
 
-    with patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh(raw)):
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh(raw)),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
         result = await execute_query(
             QueryRequest(device_name="rt1", query_type=QueryType.PING, target="8.8.8.8"),
         )

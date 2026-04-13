@@ -18,6 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from bgpeek import __version__
 from bgpeek.api import auth as auth_api
+from bgpeek.api import credentials as credentials_api
 from bgpeek.api import devices as devices_api
 from bgpeek.api import query as query_api
 from bgpeek.api import webhooks as webhooks_api
@@ -67,6 +68,59 @@ _LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60  # 1 year
 # Cleanup task handle
 # ---------------------------------------------------------------------------
 _cleanup_task: asyncio.Task[None] | None = None
+
+
+async def _ensure_default_credential() -> None:
+    """Create a 'default' credential from global SSH config if none exists.
+
+    This provides backward compatibility: existing deployments with a single
+    SSH key/username get a credential row auto-created, and all devices with
+    ``credential_id IS NULL`` get assigned to it.
+    """
+    from bgpeek.db.credentials import get_credential_by_name
+
+    pool = get_pool()
+    existing = await get_credential_by_name(pool, "default")
+    if existing is not None:
+        return  # already set up
+
+    # Determine key_name: look for default.key or id_rsa in keys_dir
+    key_name: str | None = None
+    for candidate in ("default.key", "id_rsa"):
+        if (settings.keys_dir / candidate).is_file():
+            key_name = candidate
+            break
+    # Also check legacy config_dir/id_rsa
+    if key_name is None and (settings.config_dir / "id_rsa").is_file():
+        key_name = None  # will still need manual setup, but create the row
+
+    if key_name is None:
+        log.info("no default SSH key found, skipping auto-credential creation")
+        return
+
+    from bgpeek.models.credential import CredentialCreate
+    from bgpeek.db.credentials import create_credential
+
+    cred = await create_credential(
+        pool,
+        CredentialCreate(
+            name="default",
+            description="Auto-created from global SSH config",
+            auth_type="key",
+            username=settings.ssh_username,
+            key_name=key_name,
+        ),
+    )
+    log.info("auto_created_default_credential", credential_id=cred.id, key_name=key_name)
+
+    # Assign to all devices that have no credential
+    result = await pool.execute(
+        "UPDATE devices SET credential_id = $1 WHERE credential_id IS NULL",
+        cred.id,
+    )
+    count = int(result.split()[-1])
+    if count:
+        log.info("assigned_default_credential", device_count=count)
 
 
 async def _periodic_cleanup() -> None:
@@ -171,6 +225,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         except Exception:
             log.error("auto_migrate_failed", exc_info=True)
 
+    # Auto-create default credential for backward compatibility
+    try:
+        await _ensure_default_credential()
+    except Exception:
+        log.warning("default_credential_setup_failed", exc_info=True)
+
     try:
         await init_redis(settings.redis_url)
     except Exception:
@@ -222,6 +282,7 @@ app.mount(
 )
 
 app.include_router(auth_api.router)
+app.include_router(credentials_api.router)
 app.include_router(devices_api.router)
 app.include_router(query_api.router)
 app.include_router(webhooks_api.router)

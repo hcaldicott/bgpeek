@@ -121,7 +121,9 @@ class Settings(BaseSettings):
     )
 
     # --- SSH ---
-    ssh_username: str = Field(default="looking-glass", description="Default SSH username for devices")
+    ssh_username: str = Field(default="looking-glass", description="Default SSH username for devices (fallback when no credential assigned)")
+    keys_dir: Path = Field(default=Path("/etc/bgpeek/keys"), description="Directory containing SSH private key files")
+    encryption_key: str = Field(default="", description="Fernet key for encrypting stored passwords (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')")
     ssh_timeout: int = Field(default=30, description="Default SSH connection/command timeout in seconds")
     ssh_timeout_traceroute: int = Field(default=120, description="SSH timeout for traceroute commands")
     ssh_known_hosts_policy: str = Field(

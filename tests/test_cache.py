@@ -144,6 +144,7 @@ async def test_query_pipeline_returns_cached_on_second_call() -> None:
     import asyncpg
 
     from bgpeek.core.query import execute_query
+    from bgpeek.models.credential import Credential
     from bgpeek.models.device import Device
 
     store: dict[str, str] = {}
@@ -176,6 +177,16 @@ async def test_query_pipeline_returns_cached_on_second_call() -> None:
         updated_at=now,
     )
 
+    cred_obj = Credential(
+        id=1,
+        name="default",
+        username="looking-glass",
+        auth_type="key",
+        key_name="default.key",
+        created_at=now,
+        updated_at=now,
+    )
+
     mock_pool = AsyncMock(spec=asyncpg.Pool)
     req = _make_request()
 
@@ -183,6 +194,7 @@ async def test_query_pipeline_returns_cached_on_second_call() -> None:
         _patch("bgpeek.core.cache.get_redis", return_value=mock_redis),
         _patch("bgpeek.core.query.get_pool", return_value=mock_pool),
         _patch("bgpeek.core.query.device_crud.get_device_by_name", return_value=device_obj),
+        _patch("bgpeek.core.query.get_credential_for_device", return_value=cred_obj),
         _patch("bgpeek.core.query.SSHClient", return_value=mock_ssh),
         _patch("bgpeek.core.query.log_audit", return_value=None),
     ):

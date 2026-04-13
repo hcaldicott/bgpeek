@@ -21,6 +21,7 @@ class DeviceBase(BaseModel):
     location: str | None = None
     enabled: bool = True
     restricted: bool = False
+    credential_id: int | None = None
 
 
 class DeviceCreate(DeviceBase):
@@ -40,6 +41,7 @@ class DeviceUpdate(BaseModel):
     location: str | None = None
     enabled: bool | None = None
     restricted: bool | None = None
+    credential_id: int | None = None
 
 
 class Device(DeviceBase):
