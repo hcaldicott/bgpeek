@@ -4,7 +4,27 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Group all patch and minor updates into a single PR.
+      # Major updates stay separate for manual review.
+      python-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - python
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - github-actions
