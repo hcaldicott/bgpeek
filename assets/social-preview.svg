@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Decorative grid dots -->
+  <g opacity="0.15" fill="#6366f1">
+    <circle cx="80" cy="80" r="2"/>
+    <circle cx="160" cy="80" r="2"/>
+    <circle cx="240" cy="80" r="2"/>
+    <circle cx="1120" cy="560" r="2"/>
+    <circle cx="1200" cy="560" r="2"/>
+    <circle cx="1040" cy="560" r="2"/>
+  </g>
+
+  <!-- Network decoration lines (left side, faint) -->
+  <g opacity="0.2" stroke="#6366f1" stroke-width="1.5" fill="none">
+    <line x1="60" y1="200" x2="280" y2="320"/>
+    <line x1="60" y1="440" x2="280" y2="320"/>
+    <line x1="120" y1="140" x2="280" y2="320"/>
+    <line x1="120" y1="500" x2="280" y2="320"/>
+  </g>
+  <g opacity="0.5">
+    <circle cx="60" cy="200" r="5" fill="#6366f1"/>
+    <circle cx="60" cy="440" r="5" fill="#6366f1"/>
+    <circle cx="120" cy="140" r="4" fill="#6366f1"/>
+    <circle cx="120" cy="500" r="4" fill="#6366f1"/>
+  </g>
+
+  <!-- Logo (scaled down from 512x512 to ~280x280, positioned left) -->
+  <g transform="translate(160, 180) scale(0.55)">
+    <!-- Eye shape -->
+    <path d="M 140 256 Q 256 140 372 256" fill="none" stroke="url(#g2)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M 140 256 Q 256 372 372 256" fill="none" stroke="url(#g2)" stroke-width="6" stroke-linecap="round"/>
+    <!-- Iris -->
+    <circle cx="256" cy="256" r="52" fill="none" stroke="url(#g1)" stroke-width="4"/>
+    <circle cx="256" cy="256" r="38" fill="url(#g1)" opacity="0.2"/>
+    <!-- Pupil -->
+    <circle cx="256" cy="256" r="22" fill="url(#g1)"/>
+    <!-- Light reflection -->
+    <circle cx="246" cy="246" r="6" fill="white" opacity="0.8"/>
+    <circle cx="264" cy="252" r="3" fill="white" opacity="0.5"/>
+  </g>
+
+  <!-- Right side text block -->
+  <g transform="translate(500, 0)">
+    <!-- Project name -->
+    <text x="0" y="260" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-weight="700" font-size="120" fill="url(#g2)" letter-spacing="2">
+      bgpeek
+    </text>
+
+    <!-- Tagline line 1 -->
+    <text x="6" y="330" font-family="-apple-system, 'Segoe UI', sans-serif" font-weight="600" font-size="32" fill="#e2e8f0">
+      Open-source looking glass
+    </text>
+    <text x="6" y="370" font-family="-apple-system, 'Segoe UI', sans-serif" font-weight="600" font-size="32" fill="#e2e8f0">
+      for ISPs and IX operators
+    </text>
+
+    <!-- Feature badges -->
+    <g font-family="-apple-system, 'Segoe UI', sans-serif" font-weight="500" font-size="20">
+      <rect x="6" y="420" width="180" height="40" rx="20" fill="#6366f1" fill-opacity="0.15" stroke="#6366f1" stroke-opacity="0.5"/>
+      <text x="96" y="446" text-anchor="middle" fill="#a5b4fc">Multi-vendor</text>
+
+      <rect x="200" y="420" width="150" height="40" rx="20" fill="#06b6d4" fill-opacity="0.15" stroke="#06b6d4" stroke-opacity="0.5"/>
+      <text x="275" y="446" text-anchor="middle" fill="#67e8f9">Self-hosted</text>
+
+      <rect x="364" y="420" width="140" height="40" rx="20" fill="#818cf8" fill-opacity="0.15" stroke="#818cf8" stroke-opacity="0.5"/>
+      <text x="434" y="446" text-anchor="middle" fill="#c7d2fe">API-first</text>
+
+      <rect x="518" y="420" width="130" height="40" rx="20" fill="#22d3ee" fill-opacity="0.15" stroke="#22d3ee" stroke-opacity="0.5"/>
+      <text x="583" y="446" text-anchor="middle" fill="#a5f3fc">RPKI-aware</text>
+    </g>
+  </g>
+
+  <!-- Bottom border accent -->
+  <rect x="0" y="636" width="1280" height="4" fill="url(#g1)"/>
+</svg>
