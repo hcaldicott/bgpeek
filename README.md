@@ -44,7 +44,7 @@ Self-hosted, multi-vendor, API-first.
 **UI**
 - Server-rendered HTML with HTMX + Tailwind CSS (no SPA, no npm, ~14 KB JS)
 - Dark/light theme with persistent toggle
-- Internationalization (English and Russian)
+- Internationalization-ready (English; translation scaffold in place)
 
 **Deployment**
 - Single `docker compose up` to run (PostgreSQL + Redis included)
@@ -92,7 +92,7 @@ All settings use environment variables with the `BGPEEK_` prefix. Key settings:
 | `BGPEEK_CACHE_TTL` | `60` | Query cache TTL in seconds |
 | `BGPEEK_RATE_LIMIT_QUERY` | `30` | Queries per minute per IP |
 | `BGPEEK_RPKI_ENABLED` | `true` | Enable RPKI validation |
-| `BGPEEK_DEFAULT_LANG` | `en` | Default UI language (`en` / `ru`) |
+| `BGPEEK_DEFAULT_LANG` | `en` | Default UI language (`en`) |
 
 See [`.env.example`](.env.example) for the complete list with descriptions.
 

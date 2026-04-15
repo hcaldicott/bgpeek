@@ -24,12 +24,6 @@
         {% else %}
         <a href="/auth/login" class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">{{ t.login }}</a>
         {% endif %}
-        {# ── Language switcher ────────────────────────────────────── #}
-        <span class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
-            <a href="?lang=en" class="hover:text-slate-900 dark:hover:text-white transition-colors{% if lang == 'en' %} font-bold text-slate-700 dark:text-slate-200{% endif %}">EN</a>
-            <span class="text-slate-300 dark:text-slate-600">|</span>
-            <a href="?lang=ru" class="hover:text-slate-900 dark:hover:text-white transition-colors{% if lang == 'ru' %} font-bold text-slate-700 dark:text-slate-200{% endif %}">RU</a>
-        </span>
         <button type="button"
                 onclick="bgpeekToggleTheme()"
                 aria-label="Toggle dark mode"
