@@ -21,6 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from bgpeek import __version__
 from bgpeek.api import auth as auth_api
+from bgpeek.api import community_labels as community_labels_api
 from bgpeek.api import credentials as credentials_api
 from bgpeek.api import devices as devices_api
 from bgpeek.api import query as query_api
@@ -63,6 +64,10 @@ def _parse_lg_links() -> list[dict[str, str]]:
 
 _lg_links: list[dict[str, str]] = _parse_lg_links()
 templates.env.filters["timeago"] = timeago
+
+from bgpeek.core.community_labels import annotate as annotate_community  # noqa: E402
+
+templates.env.filters["annotate_community"] = annotate_community
 
 _LANG_COOKIE = "bgpeek_lang"
 _LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60  # 1 year
@@ -263,6 +268,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     except Exception:
         log.warning("default_credential_setup_failed", exc_info=True)
 
+    # Preload community labels into the process-local cache
+    try:
+        from bgpeek.core.community_labels import refresh_cache as refresh_community_labels
+
+        await refresh_community_labels()
+    except Exception:
+        log.warning("community_labels_preload_failed", exc_info=True)
+
     try:
         await init_redis(settings.redis_url)
     except Exception:
@@ -321,6 +334,7 @@ app.include_router(credentials_api.router)
 app.include_router(devices_api.router)
 app.include_router(query_api.router)
 app.include_router(webhooks_api.router)
+app.include_router(community_labels_api.router)
 
 
 # ---------------------------------------------------------------------------

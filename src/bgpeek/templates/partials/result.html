@@ -104,7 +104,7 @@
                         {{ route.age or '-' }}
                     </td>
                     <td class="px-4 py-2.5 text-xs text-slate-400">
-                        {{ route.communities | join(', ') if route.communities else '-' }}
+                        {{ route.communities | map('annotate_community') | join(', ') if route.communities else '-' }}
                     </td>
                     <td class="px-4 py-2.5 text-center whitespace-nowrap">
                         {% if route.rpki_status == 'valid' %}
