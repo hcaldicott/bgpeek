@@ -21,7 +21,9 @@ _JUNOS_COMMUNITY_RE = re.compile(r"Communities:\s+(.+)")
 _JUNOS_STATE_RE = re.compile(r"State:\s+<([^>]*)>")
 _JUNOS_LOCALPREF_RE = re.compile(r"Localpref:\s+(\d+)")
 _JUNOS_MED_RE = re.compile(r"MED:\s+(\d+)")
-_JUNOS_METRIC2_RE = re.compile(r"Metric2:\s+(\d+)")
+# Junos detail uses "Metric:" for MED. "Metric2:" is the IGP cost to the
+# next-hop and is not exposed in the table.
+_JUNOS_METRIC_RE = re.compile(r"(?<!\w)Metric:\s+(\d+)")
 # "Age: 4d 10:03:27" or "Age: 2w3d 12:34:56". The value ends at double
 # whitespace (next field like "Metric:") or end of line.
 _JUNOS_AGE_RE = re.compile(r"Age:\s+(.+?)(?:\s{2,}|$)")
@@ -34,7 +36,6 @@ def _parse_junos(text: str) -> list[BGPRoute]:
     current_aspath: str | None = None
     current_origin: str | None = None
     current_med: int | None = None
-    current_metric2: int | None = None
     current_lp: int | None = None
     current_age: str | None = None
     current_comms: list[str] = []
@@ -50,7 +51,6 @@ def _parse_junos(text: str) -> list[BGPRoute]:
                 current_aspath,
                 current_origin,
                 current_med,
-                current_metric2,
                 current_lp,
                 current_age,
             )
@@ -65,7 +65,6 @@ def _parse_junos(text: str) -> list[BGPRoute]:
                     as_path=current_aspath,
                     origin=current_origin,
                     med=current_med,
-                    metric2=current_metric2,
                     local_pref=current_lp,
                     age=current_age,
                     communities=list(current_comms),
@@ -83,7 +82,6 @@ def _parse_junos(text: str) -> list[BGPRoute]:
             current_aspath = None
             current_origin = None
             current_med = None
-            current_metric2 = None
             current_lp = None
             current_age = None
             current_comms = []
@@ -101,7 +99,6 @@ def _parse_junos(text: str) -> list[BGPRoute]:
             current_aspath = None
             current_origin = None
             current_med = None
-            current_metric2 = None
             current_lp = None
             current_age = None
             current_comms = []
@@ -157,16 +154,19 @@ def _parse_junos(text: str) -> list[BGPRoute]:
             current_lp = int(m.group(1))
             continue
 
-        # Age, Metric, Metric2 frequently share one line in Junos detail
+        # Age, MED and Metric frequently share one line in Junos detail
         # output (e.g. "Age: 4d 10:03:27  Metric: 0   Metric2: 100000"),
-        # so do not `continue` after matching any one of them.
+        # so do not `continue` after matching any one of them. "Metric:"
+        # is the per-route MED; "MED:" is its modern alias. We deliberately
+        # ignore "Metric2:" (IGP cost to next-hop).
         m = _JUNOS_MED_RE.search(line)
         if m:
             current_med = int(m.group(1))
 
-        m = _JUNOS_METRIC2_RE.search(line)
-        if m:
-            current_metric2 = int(m.group(1))
+        if current_med is None:
+            m = _JUNOS_METRIC_RE.search(line)
+            if m:
+                current_med = int(m.group(1))
 
         m = _JUNOS_AGE_RE.search(line)
         if m:

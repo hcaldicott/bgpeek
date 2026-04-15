@@ -327,20 +327,39 @@ def test_junos_active_route_from_state() -> None:
     assert routes[2].best is False
 
 
-def test_junos_age_and_metric2_extracted() -> None:
+def test_junos_age_and_med_from_combined_line() -> None:
+    """Junos packs Age, Metric (MED) and Metric2 onto a single line. We
+    must extract Age and Metric (= MED), and ignore Metric2 (IGP cost)."""
     text = """\
 * 8.8.8.0/24 (1 entries, 1 announced)
         BGP    Preference: 170/-101
                 Next hop: 10.0.0.1 via ge-0/0/0.0
                 AS path: 15169 I
                 Localpref: 100
-                MED: 0
-                Age: 4d 10:03:27  Metric: 0   Metric2: 100000
+                Age: 4d 10:03:27  Metric: 42   Metric2: 100000
 """
     routes = parse_bgp_output(text, platform="juniper_junos")
     assert len(routes) == 1
     assert routes[0].age == "4d 10:03:27"
-    assert routes[0].metric2 == 100000
+    assert routes[0].med == 42
+    assert not hasattr(routes[0], "metric2") or getattr(routes[0], "metric2", None) is None
+
+
+def test_junos_med_keyword_wins_over_metric() -> None:
+    """When both 'MED:' and 'Metric:' are present, the explicit MED
+    keyword is the source of truth."""
+    text = """\
+* 1.1.1.0/24 (1 entries, 1 announced)
+        BGP    Preference: 170/-101
+                Next hop: 10.0.0.1 via ge-0/0/0.0
+                AS path: 13335 I
+                Localpref: 100
+                MED: 7
+                Age: 1d  Metric: 99   Metric2: 100000
+"""
+    routes = parse_bgp_output(text, platform="juniper_junos")
+    assert len(routes) == 1
+    assert routes[0].med == 7
 
 
 def test_junos_as_path_with_originator_annotation() -> None:

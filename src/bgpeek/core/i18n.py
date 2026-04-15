@@ -55,7 +55,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "origin": "Origin",
         "lp": "LP",
         "med": "MED",
-        "metric2": "Metric2",
         "age": "Age",
         "communities": "Communities",
         "rpki": "RPKI",
