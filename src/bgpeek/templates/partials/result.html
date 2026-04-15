@@ -82,10 +82,10 @@
             <tbody class="font-mono bg-slate-900 dark:bg-slate-950 text-slate-200">
                 {% for route in result.parsed_routes %}
                 <tr class="border-t border-slate-800 dark:border-slate-800
-                           {% if route.best %}bg-emerald-900/20{% endif %}
+                           {% if route.active or route.best %}bg-emerald-900/20 border-l-2 border-l-emerald-500{% endif %}
                            hover:bg-slate-800/50 transition-colors">
                     <td class="px-4 py-2 whitespace-nowrap">
-                        {% if route.best %}<span class="text-emerald-400 mr-1" title="Best route">*</span>{% endif %}
+                        {% if route.active %}<span class="text-emerald-400 mr-1" title="Active route">*</span>{% elif route.best %}<span class="text-emerald-400 mr-1" title="Best route">*</span>{% endif %}
                         <span class="text-green-400">{{ route.prefix }}</span>
                     </td>
                     <td class="px-4 py-2 whitespace-nowrap text-slate-300">{{ route.next_hop or '-' }}</td>

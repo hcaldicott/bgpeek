@@ -18,6 +18,7 @@ _JUNOS_PREFIX_RE = re.compile(r"^\s{0,4}\*?\s*([\d.]+/\d+|[\da-fA-F:]+/\d+)\s")
 _JUNOS_NEXTHOP_RE = re.compile(r"Next hop:\s+(\S+)")
 _JUNOS_ASPATH_RE = re.compile(r"AS path:\s+(.+?)(?:\s*$)")
 _JUNOS_COMMUNITY_RE = re.compile(r"Communities:\s+(.+)")
+_JUNOS_STATE_RE = re.compile(r"State:\s+<([^>]*)>")
 _JUNOS_LOCALPREF_RE = re.compile(r"Localpref:\s+(\d+)")
 _JUNOS_MED_RE = re.compile(r"MED:\s+(\d+)")
 _JUNOS_METRIC2_RE = re.compile(r"Metric2:\s+(\d+)")
@@ -38,6 +39,7 @@ def _parse_junos(text: str) -> list[BGPRoute]:
     current_age: str | None = None
     current_comms: list[str] = []
     current_best = False
+    current_active = False
     in_entry = False
 
     def _has_data() -> bool:
@@ -68,6 +70,7 @@ def _parse_junos(text: str) -> list[BGPRoute]:
                     age=current_age,
                     communities=list(current_comms),
                     best=current_best,
+                    active=current_active,
                 )
             )
 
@@ -85,11 +88,13 @@ def _parse_junos(text: str) -> list[BGPRoute]:
             current_age = None
             current_comms = []
             current_best = "*" in line.split(prefix_m.group(1))[0]
+            current_active = False
             in_entry = True
             continue
 
-        # New path entry under same prefix (Junos shows "BGP    Preference:" for each path)
-        if in_entry and re.match(r"\s+BGP\s+Preference:", line):
+        # New path entry under same prefix (Junos shows "BGP    Preference:"
+        # for each path; the active path is prefixed with "*").
+        if in_entry and re.match(r"\s+\*?BGP\s+Preference:", line):
             had_data = _has_data()
             _flush()
             current_nh = None
@@ -100,13 +105,25 @@ def _parse_junos(text: str) -> list[BGPRoute]:
             current_lp = None
             current_age = None
             current_comms = []
+            current_active = False
             # After flushing a populated entry, reset best for subsequent paths;
             # keep best from the prefix line for the first (empty) path block.
             if had_data:
                 current_best = False
+            # Junos marks the active path with a leading "*" on the
+            # "*BGP    Preference:" line.
+            if line.lstrip().startswith("*"):
+                current_best = True
             continue
 
         if not in_entry:
+            continue
+
+        m = _JUNOS_STATE_RE.search(line)
+        if m:
+            flags = m.group(1).split()
+            if "Active" in flags:
+                current_active = True
             continue
 
         m = _JUNOS_NEXTHOP_RE.search(line)

@@ -295,6 +295,38 @@ def test_localpref_extracted_correctly() -> None:
     assert routes[0].local_pref == 200
 
 
+def test_junos_active_route_from_state() -> None:
+    """Junos marks the active path with State: <Active …>; non-active
+    paths use <NotBest …> or <Ext>. The parser should set active=True
+    only for the path whose State line contains "Active"."""
+    text = """\
+8.8.8.0/24 (4 entries, 1 announced)
+        *BGP    Preference: 170/-120
+                Next hop: 10.0.0.1 via ae2.0
+                State: <Active Ext>
+                AS path: 15169 I
+                Localpref: 119
+         BGP    Preference: 170/-120
+                Next hop: 10.0.0.2 via ae0.0
+                State: <NotBest Int Ext>
+                AS path: 15169 I
+                Localpref: 119
+         BGP    Preference: 170/-51
+                Next hop: 10.0.0.3 via et-0/0/10.0
+                State: <Ext>
+                AS path: 31133 15169 I
+                Localpref: 50
+"""
+    routes = parse_bgp_output(text, platform="juniper_junos")
+    assert len(routes) == 3
+    assert routes[0].active is True
+    assert routes[0].best is True
+    assert routes[1].active is False
+    assert routes[1].best is False
+    assert routes[2].active is False
+    assert routes[2].best is False
+
+
 def test_junos_age_and_metric2_extracted() -> None:
     text = """\
 * 8.8.8.0/24 (1 entries, 1 announced)

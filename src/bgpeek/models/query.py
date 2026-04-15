@@ -40,6 +40,7 @@ class BGPRoute(BaseModel):
     age: str | None = None  # raw string, e.g. "4d 10:03:27", "2w3d"
     communities: list[str] = Field(default_factory=list)
     best: bool = False
+    active: bool = False  # true if Junos "State: <Active …>" matches
     rpki_status: str | None = None
 
 
