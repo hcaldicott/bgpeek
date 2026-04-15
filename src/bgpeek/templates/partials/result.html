@@ -62,21 +62,21 @@
     {% if result.parsed_routes %}
     {# Structured BGP table #}
     <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left">
+        <table class="w-full text-[0.95rem] text-left">
             <thead class="text-xs uppercase tracking-wider
                           bg-slate-800 dark:bg-slate-900
                           text-slate-400 dark:text-slate-500">
                 <tr>
-                    <th class="px-4 py-2.5">{{ t.prefix }}</th>
-                    <th class="px-4 py-2.5">{{ t.next_hop }}</th>
-                    <th class="px-4 py-2.5">{{ t.as_path }}</th>
-                    <th class="px-4 py-2.5 text-center">{{ t.origin }}</th>
-                    <th class="px-4 py-2.5 text-right">{{ t.lp }}</th>
-                    <th class="px-4 py-2.5 text-right">{{ t.med }}</th>
-                    <th class="px-4 py-2.5 text-right">{{ t.metric2 }}</th>
-                    <th class="px-4 py-2.5 whitespace-nowrap">{{ t.age }}</th>
-                    <th class="px-4 py-2.5">{{ t.communities }}</th>
-                    <th class="px-4 py-2.5 text-center">{{ t.rpki }}</th>
+                    <th class="px-4 py-3">{{ t.prefix }}</th>
+                    <th class="px-4 py-3">{{ t.next_hop }}</th>
+                    <th class="px-4 py-3">{{ t.as_path }}</th>
+                    <th class="px-4 py-3 text-center">{{ t.origin }}</th>
+                    <th class="px-4 py-3 text-right">{{ t.lp }}</th>
+                    <th class="px-4 py-3 text-right">{{ t.med }}</th>
+                    <th class="px-4 py-3 text-right">{{ t.metric2 }}</th>
+                    <th class="px-4 py-3 whitespace-nowrap">{{ t.age }}</th>
+                    <th class="px-4 py-3">{{ t.communities }}</th>
+                    <th class="px-4 py-3 text-center">{{ t.rpki }}</th>
                 </tr>
             </thead>
             <tbody class="font-mono bg-slate-900 dark:bg-slate-950 text-slate-200">
@@ -84,29 +84,29 @@
                 <tr class="border-t border-slate-800 dark:border-slate-800
                            {% if route.active or route.best %}bg-emerald-900/20 border-l-2 border-l-emerald-500{% endif %}
                            hover:bg-slate-800/50 transition-colors">
-                    <td class="px-4 py-2 whitespace-nowrap">
+                    <td class="px-4 py-2.5 whitespace-nowrap">
                         {% if route.active %}<span class="text-emerald-400 mr-1" title="Active route">*</span>{% elif route.best %}<span class="text-emerald-400 mr-1" title="Best route">*</span>{% endif %}
                         <span class="text-green-400">{{ route.prefix }}</span>
                     </td>
-                    <td class="px-4 py-2 whitespace-nowrap text-slate-300">{{ route.next_hop or '-' }}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-sky-300">{{ route.as_path or '-' }}</td>
-                    <td class="px-4 py-2 text-center whitespace-nowrap text-slate-400">{{ route.origin or '-' }}</td>
-                    <td class="px-4 py-2 text-right whitespace-nowrap text-amber-300">
+                    <td class="px-4 py-2.5 whitespace-nowrap text-slate-300">{{ route.next_hop or '-' }}</td>
+                    <td class="px-4 py-2.5 whitespace-nowrap text-sky-300">{{ route.as_path or '-' }}</td>
+                    <td class="px-4 py-2.5 text-center whitespace-nowrap text-slate-400">{{ route.origin or '-' }}</td>
+                    <td class="px-4 py-2.5 text-right whitespace-nowrap text-amber-300">
                         {{ route.local_pref if route.local_pref is not none else '-' }}
                     </td>
-                    <td class="px-4 py-2 text-right whitespace-nowrap text-slate-400">
+                    <td class="px-4 py-2.5 text-right whitespace-nowrap text-slate-400">
                         {{ route.med if route.med is not none else '-' }}
                     </td>
-                    <td class="px-4 py-2 text-right whitespace-nowrap text-slate-400">
+                    <td class="px-4 py-2.5 text-right whitespace-nowrap text-slate-400">
                         {{ route.metric2 if route.metric2 is not none else '-' }}
                     </td>
-                    <td class="px-4 py-2 whitespace-nowrap text-slate-400">
+                    <td class="px-4 py-2.5 whitespace-nowrap text-slate-400">
                         {{ route.age or '-' }}
                     </td>
-                    <td class="px-4 py-2 text-xs text-slate-400">
+                    <td class="px-4 py-2.5 text-xs text-slate-400">
                         {{ route.communities | join(', ') if route.communities else '-' }}
                     </td>
-                    <td class="px-4 py-2 text-center whitespace-nowrap">
+                    <td class="px-4 py-2.5 text-center whitespace-nowrap">
                         {% if route.rpki_status == 'valid' %}
                         <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-900/40 text-emerald-300">
                             <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
