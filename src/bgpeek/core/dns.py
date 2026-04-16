@@ -66,6 +66,13 @@ async def resolve_target(target: str) -> ResolvedTarget:
             all_addresses=[],
         )
 
+    # Reject numeric-only strings that are not valid IPs — these are
+    # shorthand IP notation (e.g. "1.1.11" → 1.1.0.11, "0" → 0.0.0.0)
+    # which getaddrinfo silently resolves via OS conventions.  A real
+    # hostname always contains at least one letter.
+    if not any(c.isalpha() for c in target):
+        raise DNSResolutionError(target, "not a valid IP address or hostname")
+
     # Hostname detected — check if DNS resolution is enabled.
     if not settings.dns_resolve_enabled:
         raise DNSResolutionError(

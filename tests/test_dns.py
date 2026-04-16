@@ -143,6 +143,18 @@ async def test_resolve_deduplicates_addresses() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "shorthand",
+    ["0", "1.1.11", "127.1", "192.168.1", "10", "255"],
+    ids=["zero", "three-octet", "two-octet", "three-octet-private", "single-ten", "single-255"],
+)
+async def test_reject_numeric_shorthand(shorthand: str) -> None:
+    """Numeric-only strings that aren't valid IPs must not reach getaddrinfo."""
+    with pytest.raises(DNSResolutionError, match="not a valid IP address or hostname"):
+        await resolve_target(shorthand)
+
+
+@pytest.mark.asyncio
 async def test_resolve_no_results() -> None:
     with patch("bgpeek.core.dns.asyncio.get_running_loop") as mock_loop:
         loop = AsyncMock()
