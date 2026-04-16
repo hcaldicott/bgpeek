@@ -81,9 +81,11 @@
             </thead>
             <tbody class="font-mono bg-slate-900 dark:bg-slate-950 text-slate-200">
                 {% for route in result.parsed_routes %}
+                {% set _row_color = community_row_color(route.communities) %}
                 <tr class="border-t border-slate-800 dark:border-slate-800
-                           {% if route.active or route.best %}bg-emerald-500/5{% endif %}
-                           hover:bg-slate-800/50 transition-colors">
+                           {% if route.active or route.best and not _row_color %}bg-emerald-500/5{% endif %}
+                           hover:bg-slate-800/50 transition-colors"
+                    {% if _row_color %}style="background-color: {{ _row_color }}1a"{% endif %}>
                     <td class="w-8 min-w-[2rem] max-w-[2rem] px-0 py-2.5 text-center">
                         {% if route.active or route.best %}
                         <span class="text-emerald-400 dark:text-emerald-400 text-base leading-none" aria-label="Best route" title="{% if route.active %}Active route{% else %}Best route{% endif %}">★</span>

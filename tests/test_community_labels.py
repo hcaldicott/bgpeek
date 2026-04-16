@@ -94,11 +94,13 @@ def test_large_community_annotated_by_exact_match() -> None:
     assert "Custom tag" in result
 
 
-def test_annotate_with_color() -> None:
+def test_annotate_with_color_on_both_number_and_label() -> None:
     _install([_make("64500:100", MatchType.EXACT, "customer", color="rose")])
     result = cl.annotate("64500:100")
     assert "#fb7185" in result
     assert "customer" in result
+    # Both the community number and label should be wrapped in colored spans.
+    assert result.count("color:#fb7185") == 2
 
 
 def test_annotate_without_color_gets_default() -> None:
@@ -112,6 +114,36 @@ def test_annotate_invalid_color_falls_back() -> None:
     result = cl.annotate("64500:100")
     assert "#94a3b8" in result
     assert "neon" not in result
+
+
+def test_row_color_no_match() -> None:
+    _install([])
+    assert cl.row_color(["64500:100"]) is None
+
+
+def test_row_color_no_communities() -> None:
+    _install([_make("64500:100", MatchType.EXACT, "tag", color="rose")])
+    assert cl.row_color([]) is None
+
+
+def test_row_color_returns_hex() -> None:
+    _install([_make("64500:1", MatchType.PREFIX, "upstream", color="sky")])
+    assert cl.row_color(["64500:1234"]) == "#38bdf8"
+
+
+def test_row_color_exact_beats_prefix() -> None:
+    _install(
+        [
+            _make("64500:1", MatchType.PREFIX, "upstream", 1, color="sky"),
+            _make("64500:100", MatchType.EXACT, "customer", 2, color="emerald"),
+        ]
+    )
+    assert cl.row_color(["64500:100"]) == "#34d399"
+
+
+def test_row_color_skips_entries_without_color() -> None:
+    _install([_make("64500:100", MatchType.EXACT, "tag")])
+    assert cl.row_color(["64500:100"]) is None
 
 
 def test_annotate_escapes_html() -> None:

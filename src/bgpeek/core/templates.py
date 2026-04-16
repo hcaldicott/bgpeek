@@ -11,9 +11,11 @@ from fastapi.templating import Jinja2Templates
 
 from bgpeek.config import settings
 from bgpeek.core.community_labels import annotate as annotate_community
+from bgpeek.core.community_labels import row_color as community_row_color
 from bgpeek.core.time_utils import timeago
 
 templates = Jinja2Templates(directory=str(settings.templates_dir))
 
 templates.env.filters["timeago"] = timeago
 templates.env.filters["annotate_community"] = annotate_community
+templates.env.globals["community_row_color"] = community_row_color

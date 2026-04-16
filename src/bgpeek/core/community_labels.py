@@ -92,6 +92,13 @@ def _find_match(community: str) -> CommunityLabel | None:
     return exact or best_prefix
 
 
+def _resolve_hex(color: str | None) -> str:
+    """Return hex color for a validated color token, or the default slate."""
+    if color and color in ALLOWED_COLORS:
+        return _COLORS.get(color, _DEFAULT_COLOR)
+    return _DEFAULT_COLOR
+
+
 def annotate(community: str) -> Markup:
     """Return the community as HTML — colored label text if matched, plain text otherwise."""
     entry = _find_match(community)
@@ -100,9 +107,35 @@ def annotate(community: str) -> Markup:
         return Markup(esc_comm)  # noqa: S704 — value is html.escape()'d
 
     esc_label = escape(entry.label)
-    color = entry.color if entry.color and entry.color in ALLOWED_COLORS else None
-    hex_color = _COLORS.get(color, _DEFAULT_COLOR) if color else _DEFAULT_COLOR
+    hex_color = _resolve_hex(entry.color)
 
     return Markup(  # noqa: S704 — all interpolated values are html.escape()'d
-        f'{esc_comm} <span style="color:{hex_color}">({esc_label})</span>'
+        f'<span style="color:{hex_color}">{esc_comm}</span>'
+        f' <span style="color:{hex_color}">({esc_label})</span>'
     )
+
+
+def row_color(communities: list[str]) -> str | None:
+    """Return a hex color for row highlight based on the most specific community match.
+
+    Returns None if no community matches any label with a color.
+    Exact matches take priority; among prefix matches the longest pattern wins.
+    """
+    best_entry: CommunityLabel | None = None
+    best_specificity = -1  # exact=1000+len, prefix=len
+
+    for comm in communities:
+        entry = _find_match(comm)
+        if entry is None or not entry.color or entry.color not in ALLOWED_COLORS:
+            continue
+        if entry.match_type is MatchType.EXACT:
+            specificity = 1000 + len(entry.pattern)
+        else:
+            specificity = len(entry.pattern)
+        if specificity > best_specificity:
+            best_entry = entry
+            best_specificity = specificity
+
+    if best_entry is None:
+        return None
+    return _resolve_hex(best_entry.color)
