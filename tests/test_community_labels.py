@@ -167,8 +167,8 @@ def _contrast_ratio(fg: str, bg: str) -> float:
 
 
 _BG_LIGHT = "#f8fafc"  # slate-50
-_BG_DARK = "#020617"   # slate-950
-_WCAG_AA_RATIO = 4.5   # normal text
+_BG_DARK = "#020617"  # slate-950
+_WCAG_AA_RATIO = 4.5  # normal text
 
 
 def test_all_light_colors_pass_wcag_aa() -> None:

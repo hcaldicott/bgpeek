@@ -218,9 +218,7 @@ def test_strip_router_banners_preserves_mid_content() -> None:
 
     # Lines matching banner pattern in the middle of the output must be kept.
     text = (
-        "inet.0: 5 destinations\n"
-        "Warning: License key missing; requires 'BGP' license\n"
-        "8.8.8.0/24\n"
+        "inet.0: 5 destinations\nWarning: License key missing; requires 'BGP' license\n8.8.8.0/24\n"
     )
     assert strip_router_banners(text) == text
 
@@ -243,10 +241,7 @@ def test_strip_router_banners_leading_blank_before_banner() -> None:
 
     # Some routers emit a blank line before the banner.
     text = (
-        "\n"
-        " Warning: License key missing; requires 'BGP' license\n"
-        "\n"
-        " inet.0: 1072852 destinations\n"
+        "\n Warning: License key missing; requires 'BGP' license\n\n inet.0: 1072852 destinations\n"
     )
     cleaned = strip_router_banners(text)
     assert "Warning:" not in cleaned

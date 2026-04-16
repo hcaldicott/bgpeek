@@ -33,9 +33,7 @@ async def get_label(pool: asyncpg.Pool, label_id: int) -> CommunityLabel | None:
 
 
 async def list_labels(pool: asyncpg.Pool) -> list[CommunityLabel]:
-    rows = await pool.fetch(
-        "SELECT * FROM community_labels ORDER BY match_type DESC, pattern ASC"
-    )
+    rows = await pool.fetch("SELECT * FROM community_labels ORDER BY match_type DESC, pattern ASC")
     return [CommunityLabel.model_validate(dict(r)) for r in rows]
 
 

@@ -15,10 +15,27 @@ class MatchType(StrEnum):
     PREFIX = "prefix"
 
 
-ALLOWED_COLORS: frozenset[str] = frozenset({
-    "amber", "emerald", "rose", "sky", "violet", "slate", "red", "orange",
-    "cyan", "pink", "yellow", "lime", "teal", "indigo", "fuchsia", "blue", "green",
-})
+ALLOWED_COLORS: frozenset[str] = frozenset(
+    {
+        "amber",
+        "emerald",
+        "rose",
+        "sky",
+        "violet",
+        "slate",
+        "red",
+        "orange",
+        "cyan",
+        "pink",
+        "yellow",
+        "lime",
+        "teal",
+        "indigo",
+        "fuchsia",
+        "blue",
+        "green",
+    }
+)
 
 
 class CommunityLabelBase(BaseModel):

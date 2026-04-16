@@ -179,9 +179,7 @@ def test_query_request_strips_whitespace_around_target() -> None:
     canonical value (defense in depth on top of the JS strip)."""
     from bgpeek.models.query import MultiQueryRequest, QueryRequest, QueryType
 
-    req = QueryRequest(
-        device_name="dev1", query_type=QueryType.BGP_ROUTE, target="  8.8.8.0/24  "
-    )
+    req = QueryRequest(device_name="dev1", query_type=QueryType.BGP_ROUTE, target="  8.8.8.0/24  ")
     assert req.target == "8.8.8.0/24"
     assert req.device_name == "dev1"
 
