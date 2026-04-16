@@ -39,30 +39,6 @@ function bgpeekCopyFallback(text) {
  * @param {string} copiedLabel - Translated "Copied!" text.
  * @param {string} defaultLabel - Translated "Share" text.
  */
-/**
- * Copy the sibling ".bgp-line" element's text. Used by per-line copy
- * buttons in detailed BGP output.
- *
- * @param {HTMLElement} btn - The copy button element.
- */
-function bgpeekCopyLine(btn) {
-    var row = btn.parentElement;
-    if (!row) return;
-    var line = row.querySelector(".bgp-line");
-    if (!line) return;
-    bgpeekCopyText(line.textContent).then(function (ok) {
-        if (!ok) return;
-        var icon = btn.querySelector(".copy-icon");
-        var check = btn.querySelector(".copy-check");
-        if (icon) icon.classList.add("hidden");
-        if (check) check.classList.remove("hidden");
-        setTimeout(function () {
-            if (icon) icon.classList.remove("hidden");
-            if (check) check.classList.add("hidden");
-        }, 1200);
-    });
-}
-
 function bgpeekShare(btn, url, copiedLabel, defaultLabel) {
     bgpeekCopyText(url).then(function (ok) {
         if (!ok) return;
