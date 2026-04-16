@@ -41,6 +41,10 @@ def strip_router_banners(text: str) -> str:
     stripped_any = False
     while idx < len(lines):
         line = lines[idx]
+        # Skip leading blank lines before any banner is found.
+        if not stripped_any and not line.strip():
+            idx += 1
+            continue
         if _BANNER_RE.match(line):
             stripped_any = True
             idx += 1
@@ -49,7 +53,7 @@ def strip_router_banners(text: str) -> str:
             idx += 1
             continue
         break
-    return "\n".join(lines[idx:]) if stripped_any else text
+    return "\n".join(lines[idx:]) if stripped_any or idx > 0 else text
 
 
 def _is_too_specific(value: str, max_v4: int, max_v6: int) -> bool | None:

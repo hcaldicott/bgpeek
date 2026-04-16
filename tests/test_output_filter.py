@@ -236,3 +236,18 @@ def test_strip_router_banners_empty() -> None:
     from bgpeek.core.output_filter import strip_router_banners
 
     assert strip_router_banners("") == ""
+
+
+def test_strip_router_banners_leading_blank_before_banner() -> None:
+    from bgpeek.core.output_filter import strip_router_banners
+
+    # Some routers emit a blank line before the banner.
+    text = (
+        "\n"
+        " Warning: License key missing; requires 'BGP' license\n"
+        "\n"
+        " inet.0: 1072852 destinations\n"
+    )
+    cleaned = strip_router_banners(text)
+    assert "Warning:" not in cleaned
+    assert cleaned.strip().startswith("inet.0:")
