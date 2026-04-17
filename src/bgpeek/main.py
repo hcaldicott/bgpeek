@@ -373,6 +373,7 @@ async def health(deep: bool = False) -> dict[str, object]:
 @app.get("/", response_class=HTMLResponse)
 async def index(
     request: Request,
+    location: str | None = None,
     user: User | None = Depends(optional_auth),  # noqa: B008
 ) -> Response:
     """Main looking glass form — loads devices from DB for the dropdown."""
@@ -396,6 +397,11 @@ async def index(
         (region, list(grp)) for region, grp in groupby(sorted_devices, key=attrgetter("region"))
     ]
 
+    # Preselect a device when ?location=<name> is passed (used by admin "Query
+    # this device" link). Silently ignored if the name doesn't match an
+    # enabled/visible device.
+    preselect_device = location if location and any(d.name == location for d in devices) else None
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -407,6 +413,7 @@ async def index(
             "t": request.state.t,
             "lang": request.state.lang,
             "lg_links": _lg_links,
+            "preselect_device": preselect_device,
         },
     )
 

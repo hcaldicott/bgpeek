@@ -96,14 +96,14 @@
                         {% if region %}
                         <optgroup label="{{ region }}">
                             {% for device in group_devices %}
-                            <option value="{{ device.name }}">
+                            <option value="{{ device.name }}" {% if preselect_device == device.name %}selected{% endif %}>
                                 {{ device.name }}{% if device.location %} ({{ device.location }}){% endif %}
                             </option>
                             {% endfor %}
                         </optgroup>
                         {% else %}
                         {% for device in group_devices %}
-                        <option value="{{ device.name }}">
+                        <option value="{{ device.name }}" {% if preselect_device == device.name %}selected{% endif %}>
                             {{ device.name }}{% if device.location %} ({{ device.location }}){% endif %}
                         </option>
                         {% endfor %}
@@ -235,6 +235,8 @@
   }
 
   deviceSel.addEventListener("change", updateFormAction);
+  // Sync form state on initial render (picks up server-side preselection).
+  updateFormAction();
 
   /* ── Region filter ───────────────────────────────────────────── */
   var regionFilter = document.getElementById("region-filter");

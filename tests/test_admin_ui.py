@@ -195,6 +195,81 @@ def test_devices_list_renders() -> None:
     assert "/admin/devices/1/edit" in response.text
 
 
+def test_devices_list_has_query_link() -> None:
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'href="/?location=rt1"' in response.text
+
+
+def test_index_preselects_device_when_param_matches() -> None:
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.main.get_pool", return_value=object()),
+        patch(
+            "bgpeek.main.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/?location=rt1", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    # Option for rt1 is rendered with selected attribute
+    assert 'value="rt1" selected' in response.text
+
+
+def test_index_ignores_unknown_location_param() -> None:
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.main.get_pool", return_value=object()),
+        patch(
+            "bgpeek.main.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/?location=does-not-exist", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    # No <option ... selected> attribute on any device
+    assert 'value="rt1" selected' not in response.text
+
+
 def test_devices_list_noc_returns_403() -> None:
     with (
         patch(

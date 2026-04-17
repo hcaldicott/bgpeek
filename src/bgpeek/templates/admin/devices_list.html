@@ -57,8 +57,13 @@
                     {% endif %}
                 </td>
                 <td class="px-4 py-2 text-right whitespace-nowrap">
-                    <a href="/admin/devices/{{ device.id }}/edit"
+                    <a href="/?location={{ device.name }}"
+                       title="{{ t.admin_devices_query_title }}"
                        class="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs">
+                        {{ t.admin_devices_query }}
+                    </a>
+                    <a href="/admin/devices/{{ device.id }}/edit"
+                       class="ml-3 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs">
                         {{ t.admin_edit }}
                     </a>
                     <form method="post" action="/admin/devices/{{ device.id }}/delete" class="inline ml-3"

@@ -144,6 +144,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_devices_test_ssh_button": "Run test",
         "admin_devices_test_ssh_running": "Connecting…",
         "admin_devices_test_ssh_no_credential": "Assign an SSH credential to this device (and save) before running a test.",
+        "admin_devices_query": "Query",
+        "admin_devices_query_title": "Open the looking glass with this device preselected",
         "admin_creds_add": "Add credential",
         "admin_creds_name": "Name",
         "admin_creds_username": "Username",
