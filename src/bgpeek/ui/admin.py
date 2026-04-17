@@ -14,12 +14,21 @@ from bgpeek import __version__
 from bgpeek.core.auth import require_role
 from bgpeek.core.cache import invalidate_device
 from bgpeek.core.commands import supported_platforms
+from bgpeek.core.community_labels import color_pairs as _color_pairs
+from bgpeek.core.community_labels import refresh_cache as refresh_label_cache
 from bgpeek.core.templates import templates
+from bgpeek.db import community_labels as label_crud
 from bgpeek.db import credentials as credential_crud
 from bgpeek.db import devices as device_crud
 from bgpeek.db import users as user_crud
 from bgpeek.db import webhooks as webhook_crud
 from bgpeek.db.pool import get_pool
+from bgpeek.models.community_label import (
+    ALLOWED_COLORS,
+    CommunityLabelCreate,
+    CommunityLabelUpdate,
+    MatchType,
+)
 from bgpeek.models.credential import CredentialCreate, CredentialUpdate
 from bgpeek.models.device import DeviceCreate, DeviceUpdate
 from bgpeek.models.user import User, UserCreate, UserCreateLocal, UserRole, UserUpdate
@@ -817,3 +826,197 @@ async def users_delete(
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------------
+# Community labels
+# ---------------------------------------------------------------------------
+
+
+async def _render_label_form(
+    request: Request,
+    *,
+    title: str,
+    form_action: str,
+    form: dict[str, object],
+    error: str | None = None,
+    status_code: int = 200,
+) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="admin/community_labels_form.html",
+        context={
+            "version": __version__,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "title": title,
+            "form_action": form_action,
+            "form": form,
+            "error": error,
+            "color_pairs": _color_pairs(),
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/community-labels", response_class=HTMLResponse)
+async def community_labels_list(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    labels = await label_crud.list_labels(get_pool())
+    return templates.TemplateResponse(
+        request=request,
+        name="admin/community_labels_list.html",
+        context={
+            "version": __version__,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "labels": labels,
+            "color_pairs": _color_pairs(),
+        },
+    )
+
+
+@router.get("/community-labels/new", response_class=HTMLResponse)
+async def community_labels_new(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    form: dict[str, object] = {"match_type": "exact"}
+    return await _render_label_form(
+        request,
+        title=request.state.t["admin_cl_new"],
+        form_action="/admin/community-labels",
+        form=form,
+    )
+
+
+def _validate_label_inputs(match_type: str, color: str | None) -> None:
+    if match_type not in {"exact", "prefix"}:
+        raise ValueError(f"invalid match_type: {match_type!r}")
+    if color and color not in ALLOWED_COLORS:
+        raise ValueError(f"invalid color: {color!r}")
+
+
+@router.post("/community-labels")
+async def community_labels_create(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+    pattern: str = Form(...),
+    match_type: str = Form("exact"),
+    label: str = Form(...),
+    color: str | None = Form(None),
+) -> Response:
+    color_value = color or None
+    raw: dict[str, object] = {
+        "pattern": pattern,
+        "match_type": match_type,
+        "label": label,
+        "color": color_value,
+    }
+    try:
+        _validate_label_inputs(match_type, color_value)
+        payload = CommunityLabelCreate(
+            pattern=pattern,
+            match_type=MatchType(match_type),
+            label=label,
+            color=color_value,
+        )
+    except (ValidationError, ValueError) as exc:
+        return await _render_label_form(
+            request,
+            title=request.state.t["admin_cl_new"],
+            form_action="/admin/community-labels",
+            form=raw,
+            error=str(exc),
+            status_code=400,
+        )
+
+    try:
+        await label_crud.create_label(get_pool(), payload)
+    except Exception as exc:  # noqa: BLE001 — surface DB uniqueness as 409
+        msg = str(exc).lower()
+        if "unique" in msg or "duplicate" in msg:
+            return await _render_label_form(
+                request,
+                title=request.state.t["admin_cl_new"],
+                form_action="/admin/community-labels",
+                form=raw,
+                error="a label with this pattern and match_type already exists",
+                status_code=409,
+            )
+        raise
+    await refresh_label_cache()
+    return RedirectResponse("/admin/community-labels", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/community-labels/{label_id}/edit", response_class=HTMLResponse)
+async def community_labels_edit(
+    label_id: int,
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    row = await label_crud.get_label(get_pool(), label_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="community label not found")
+    return await _render_label_form(
+        request,
+        title=request.state.t["admin_cl_edit"],
+        form_action=f"/admin/community-labels/{label_id}",
+        form=row.model_dump(),
+    )
+
+
+@router.post("/community-labels/{label_id}")
+async def community_labels_update(
+    label_id: int,
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+    pattern: str = Form(...),
+    match_type: str = Form("exact"),
+    label: str = Form(...),
+    color: str | None = Form(None),
+) -> Response:
+    color_value = color or None
+    raw: dict[str, object] = {
+        "pattern": pattern,
+        "match_type": match_type,
+        "label": label,
+        "color": color_value,
+    }
+    try:
+        _validate_label_inputs(match_type, color_value)
+        payload = CommunityLabelUpdate(
+            pattern=pattern,
+            match_type=MatchType(match_type),
+            label=label,
+            color=color_value,
+        )
+    except (ValidationError, ValueError) as exc:
+        return await _render_label_form(
+            request,
+            title=request.state.t["admin_cl_edit"],
+            form_action=f"/admin/community-labels/{label_id}",
+            form=raw,
+            error=str(exc),
+            status_code=400,
+        )
+
+    updated = await label_crud.update_label(get_pool(), label_id, payload)
+    if updated is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="community label not found")
+    await refresh_label_cache()
+    return RedirectResponse("/admin/community-labels", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/community-labels/{label_id}/delete")
+async def community_labels_delete(
+    label_id: int,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    deleted = await label_crud.delete_label(get_pool(), label_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="community label not found")
+    await refresh_label_cache()
+    return RedirectResponse("/admin/community-labels", status_code=status.HTTP_303_SEE_OTHER)

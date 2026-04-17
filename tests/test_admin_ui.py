@@ -876,3 +876,207 @@ def test_users_delete_other_redirects() -> None:
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/users"
     delete_mock.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Admin community labels CRUD
+# ---------------------------------------------------------------------------
+
+
+_LABEL_ROW = {
+    "id": 1,
+    "pattern": "65000:100",
+    "match_type": "exact",
+    "label": "Customer traffic",
+    "color": "emerald",
+    "created_at": _NOW,
+    "updated_at": _NOW,
+}
+
+
+def test_labels_list_renders() -> None:
+    from bgpeek.models.community_label import CommunityLabel
+
+    label = CommunityLabel.model_validate(_LABEL_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.label_crud.list_labels",
+            new=AsyncMock(return_value=[label]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/community-labels", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "65000:100" in response.text
+    assert "Customer traffic" in response.text
+    assert "/admin/community-labels/new" in response.text
+    assert "/admin/community-labels/1/edit" in response.text
+
+
+def test_labels_new_form_renders_color_swatches() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/community-labels/new", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'name="pattern"' in response.text
+    assert 'name="match_type"' in response.text
+    # Color swatches rendered from color_pairs()
+    assert 'value="emerald"' in response.text
+    assert 'value="amber"' in response.text
+
+
+def test_labels_create_redirects_and_refreshes_cache() -> None:
+    create_mock = AsyncMock()
+    refresh_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.label_crud.create_label", new=create_mock),
+        patch("bgpeek.ui.admin.refresh_label_cache", new=refresh_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/community-labels",
+            headers={"X-API-Key": "any"},
+            data={
+                "pattern": "65000:100",
+                "match_type": "exact",
+                "label": "Customer traffic",
+                "color": "emerald",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/community-labels"
+    create_mock.assert_awaited_once()
+    refresh_mock.assert_awaited_once()
+    payload = create_mock.await_args.args[1]
+    assert payload.pattern == "65000:100"
+    assert payload.color == "emerald"
+
+
+def test_labels_create_no_color_ok() -> None:
+    create_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.label_crud.create_label", new=create_mock),
+        patch("bgpeek.ui.admin.refresh_label_cache", new=AsyncMock()),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/community-labels",
+            headers={"X-API-Key": "any"},
+            data={
+                "pattern": "65000:",
+                "match_type": "prefix",
+                "label": "Customer range",
+                "color": "",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    payload = create_mock.await_args.args[1]
+    assert payload.color is None
+
+
+def test_labels_create_invalid_color_rerenders() -> None:
+    create_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.label_crud.create_label", new=create_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/community-labels",
+            headers={"X-API-Key": "any"},
+            data={
+                "pattern": "65000:100",
+                "match_type": "exact",
+                "label": "Test",
+                "color": "hotpink",  # not in ALLOWED_COLORS
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+    assert "invalid color" in response.text
+    create_mock.assert_not_awaited()
+
+
+def test_labels_edit_form_prefilled() -> None:
+    from bgpeek.models.community_label import CommunityLabel
+
+    label = CommunityLabel.model_validate(_LABEL_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.label_crud.get_label",
+            new=AsyncMock(return_value=label),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get(
+            "/admin/community-labels/1/edit",
+            headers={"X-API-Key": "any"},
+        )
+
+    assert response.status_code == 200
+    assert 'value="65000:100"' in response.text
+    assert 'action="/admin/community-labels/1"' in response.text
+
+
+def test_labels_delete_redirects() -> None:
+    delete_mock = AsyncMock(return_value=True)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.label_crud.delete_label", new=delete_mock),
+        patch("bgpeek.ui.admin.refresh_label_cache", new=AsyncMock()),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/community-labels/1/delete",
+            headers={"X-API-Key": "any"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    delete_mock.assert_awaited_once()

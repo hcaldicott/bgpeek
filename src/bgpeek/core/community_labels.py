@@ -49,6 +49,11 @@ _DEFAULT_LIGHT = "#475569"  # slate-600
 _DEFAULT_DARK = "#94a3b8"  # slate-400
 
 
+def color_pairs() -> dict[str, tuple[str, str]]:
+    """Return the mapping of color token → (light hex, dark hex)."""
+    return dict(_COLORS)
+
+
 async def refresh_cache() -> None:
     """Reload the snapshot from PostgreSQL."""
     global _cache, _loaded
