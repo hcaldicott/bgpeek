@@ -33,13 +33,12 @@
 
         <label class="block">
             <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_platform }} <span class="text-rose-500">*</span></span>
-            <input type="text" name="platform" value="{{ form.platform or '' }}" required list="platforms-list"
-                   class="{{ field_class }}">
-            <datalist id="platforms-list">
+            <select name="platform" required class="{{ field_class }}">
+                <option value="" {% if not form.platform %}selected{% endif %} disabled>— {{ t.admin_devices_platform_select }} —</option>
                 {% for p in platforms %}
-                <option value="{{ p }}"></option>
+                <option value="{{ p }}" {% if form.platform == p %}selected{% endif %}>{{ p }}</option>
                 {% endfor %}
-            </datalist>
+            </select>
         </label>
 
         <label class="block">

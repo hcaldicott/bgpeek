@@ -125,6 +125,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_devices_address": "Address",
         "admin_devices_port": "Port",
         "admin_devices_platform": "Platform",
+        "admin_devices_platform_select": "select platform",
         "admin_devices_region": "Region",
         "admin_devices_location": "Location",
         "admin_devices_credential": "SSH credential",
