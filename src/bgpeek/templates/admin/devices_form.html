@@ -1,0 +1,131 @@
+{% extends "admin/base.html" %}
+{% set active = "devices" %}
+
+{% block title %}bgpeek &middot; {{ title }}{% endblock %}
+
+{% block admin_content %}
+<div class="mb-6">
+    <a href="/admin/devices" class="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+        &larr; {{ t.admin_devices }}
+    </a>
+    <h1 class="text-xl font-semibold mt-2">{{ title }}</h1>
+</div>
+
+{% if error %}
+<div class="mb-4 rounded-md border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-900/20 p-3 text-sm text-rose-700 dark:text-rose-300">
+    {{ error }}
+</div>
+{% endif %}
+
+<form method="post" action="{{ form_action }}" class="space-y-4 max-w-2xl">
+    {% set field_class = "mt-1 block w-full rounded-md border border-slate-300 dark:border-slate-600
+                          bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100
+                          px-3 py-2 text-sm
+                          focus:border-slate-500 focus:ring-1 focus:ring-slate-500
+                          dark:focus:border-slate-400 dark:focus:ring-slate-400" %}
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_name }} <span class="text-rose-500">*</span></span>
+            <input type="text" name="name" value="{{ form.name or '' }}" required maxlength="255"
+                   class="{{ field_class }}">
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_platform }} <span class="text-rose-500">*</span></span>
+            <input type="text" name="platform" value="{{ form.platform or '' }}" required list="platforms-list"
+                   class="{{ field_class }}">
+            <datalist id="platforms-list">
+                {% for p in platforms %}
+                <option value="{{ p }}"></option>
+                {% endfor %}
+            </datalist>
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_address }} <span class="text-rose-500">*</span></span>
+            <input type="text" name="address" value="{{ form.address or '' }}" required
+                   placeholder="192.0.2.1 or 2001:db8::1"
+                   class="{{ field_class }} font-mono">
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_port }}</span>
+            <input type="number" name="port" value="{{ form.port or 22 }}" min="1" max="65535"
+                   class="{{ field_class }}">
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_credential }}</span>
+            <select name="credential_id" class="{{ field_class }}">
+                <option value="">— {{ t.admin_devices_no_credential }} —</option>
+                {% for c in credentials %}
+                <option value="{{ c.id }}" {% if form.credential_id == c.id %}selected{% endif %}>
+                    {{ c.name }} ({{ c.username }})
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_region }}</span>
+            <input type="text" name="region" value="{{ form.region or '' }}" maxlength="64"
+                   class="{{ field_class }}">
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_location }}</span>
+            <input type="text" name="location" value="{{ form.location or '' }}" maxlength="64"
+                   class="{{ field_class }}">
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_source4 }}</span>
+            <input type="text" name="source4" value="{{ form.source4 or '' }}"
+                   placeholder="203.0.113.1"
+                   class="{{ field_class }} font-mono">
+        </label>
+
+        <label class="block">
+            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_source6 }}</span>
+            <input type="text" name="source6" value="{{ form.source6 or '' }}"
+                   placeholder="2001:db8::1"
+                   class="{{ field_class }} font-mono">
+        </label>
+    </div>
+
+    <label class="block">
+        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.admin_devices_description }}</span>
+        <textarea name="description" rows="2" class="{{ field_class }}">{{ form.description or '' }}</textarea>
+    </label>
+
+    <div class="flex gap-6 pt-2">
+        <label class="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input type="checkbox" name="enabled" value="1" {% if form.enabled %}checked{% endif %}
+                   class="rounded border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 focus:ring-slate-500">
+            {{ t.admin_devices_enabled }}
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input type="checkbox" name="restricted" value="1" {% if form.restricted %}checked{% endif %}
+                   class="rounded border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 focus:ring-slate-500">
+            {{ t.admin_devices_restricted }}
+        </label>
+    </div>
+
+    <div class="flex items-center gap-3 pt-4">
+        <button type="submit"
+                class="rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900
+                       px-4 py-2 text-sm font-medium
+                       hover:bg-slate-800 dark:hover:bg-white transition-colors">
+            {{ t.admin_save }}
+        </button>
+        <a href="/admin/devices"
+           class="rounded-md border border-slate-300 dark:border-slate-600
+                  text-slate-700 dark:text-slate-300
+                  px-4 py-2 text-sm font-medium
+                  hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+            {{ t.admin_cancel }}
+        </a>
+    </div>
+</form>
+{% endblock %}
