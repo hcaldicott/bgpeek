@@ -605,3 +605,274 @@ def test_credentials_delete_in_use_returns_409() -> None:
         )
 
     assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Admin users CRUD
+# ---------------------------------------------------------------------------
+
+
+def test_users_list_renders_and_marks_current() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.user_crud.list_users",
+            new=AsyncMock(return_value=[_ADMIN, _NOC]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/users", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "admin" in response.text
+    assert "noc" in response.text
+    # "you" marker on current user (admin)
+    assert "(you)" in response.text
+    # Delete button for NOC (id=2), not for self (id=1)
+    assert "/admin/users/2/delete" in response.text
+    assert "/admin/users/1/delete" not in response.text
+
+
+def test_users_new_form_renders() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/users/new", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'name="auth_type"' in response.text
+    assert 'value="local"' in response.text
+    assert 'value="api_key"' in response.text
+    assert 'name="username"' in response.text
+    assert 'name="password"' in response.text
+
+
+def test_users_create_local_redirects() -> None:
+    create_local_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users",
+            headers={"X-API-Key": "any"},
+            data={
+                "auth_type": "local",
+                "username": "alice",
+                "email": "alice@example.com",
+                "role": "public",
+                "password": "correct-horse-battery-staple",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/users"
+    create_local_mock.assert_awaited_once()
+    payload = create_local_mock.await_args.args[1]
+    assert payload.username == "alice"
+    assert payload.role == UserRole.PUBLIC
+
+
+def test_users_create_local_short_password_rerenders() -> None:
+    create_local_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users",
+            headers={"X-API-Key": "any"},
+            data={
+                "auth_type": "local",
+                "username": "alice",
+                "role": "public",
+                "password": "short",  # too short (min 8)
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+    assert 'name="username"' in response.text  # form rerendered
+    create_local_mock.assert_not_awaited()
+
+
+def test_users_create_api_key_shows_key_page() -> None:
+    create_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.create_user", new=create_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users",
+            headers={"X-API-Key": "any"},
+            data={
+                "auth_type": "api_key",
+                "username": "bot-user",
+                "role": "noc",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 200
+    assert "API key generated" in response.text
+    assert "bot-user" in response.text
+    # The generated key is displayed exactly once in the page
+    create_mock.assert_awaited_once()
+    payload = create_mock.await_args.args[1]
+    assert payload.username == "bot-user"
+    assert payload.api_key  # a key was generated
+
+
+def test_users_create_invalid_role_rerenders() -> None:
+    create_local_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users",
+            headers={"X-API-Key": "any"},
+            data={
+                "auth_type": "local",
+                "username": "alice",
+                "role": "super-admin",  # not in _ROLE_CHOICES
+                "password": "correct-horse-battery-staple",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+    assert "invalid role" in response.text
+    create_local_mock.assert_not_awaited()
+
+
+def test_users_edit_form_prefilled() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.user_crud.get_user_by_id",
+            new=AsyncMock(return_value=_NOC),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get(
+            "/admin/users/2/edit",
+            headers={"X-API-Key": "any"},
+        )
+
+    assert response.status_code == 200
+    assert 'value="noc"' in response.text
+    assert 'action="/admin/users/2"' in response.text
+
+
+def test_users_update_redirects() -> None:
+    update_mock = AsyncMock(return_value=_NOC)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.update_user", new=update_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users/2",
+            headers={"X-API-Key": "any"},
+            data={
+                "role": "public",
+                "email": "noc@example.com",
+                "enabled": "1",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    update_mock.assert_awaited_once()
+    payload = update_mock.await_args.args[2]
+    assert payload.role == UserRole.PUBLIC
+    assert payload.email == "noc@example.com"
+    assert payload.enabled is True
+
+
+def test_users_delete_self_returns_400() -> None:
+    delete_mock = AsyncMock(return_value=True)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.delete_user", new=delete_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users/1/delete",  # _ADMIN.id == 1
+            headers={"X-API-Key": "any"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+    delete_mock.assert_not_awaited()
+
+
+def test_users_delete_other_redirects() -> None:
+    delete_mock = AsyncMock(return_value=True)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.delete_user", new=delete_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/users/2/delete",  # _NOC.id == 2
+            headers={"X-API-Key": "any"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/users"
+    delete_mock.assert_awaited_once()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from ipaddress import IPv4Address, IPv6Address, ip_address
 
 import asyncpg
@@ -21,7 +22,7 @@ from bgpeek.db import webhooks as webhook_crud
 from bgpeek.db.pool import get_pool
 from bgpeek.models.credential import CredentialCreate, CredentialUpdate
 from bgpeek.models.device import DeviceCreate, DeviceUpdate
-from bgpeek.models.user import User, UserRole
+from bgpeek.models.user import User, UserCreate, UserCreateLocal, UserRole, UserUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin-ui"])
 
@@ -561,3 +562,258 @@ async def credentials_delete(
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="credential not found")
     return RedirectResponse("/admin/credentials", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+
+_ROLE_CHOICES = [UserRole.ADMIN.value, UserRole.NOC.value, UserRole.PUBLIC.value]
+
+
+async def _render_user_form(
+    request: Request,
+    *,
+    title: str,
+    form_action: str,
+    form: dict[str, object],
+    is_edit: bool,
+    error: str | None = None,
+    status_code: int = 200,
+) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="admin/users_form.html",
+        context={
+            "version": __version__,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "title": title,
+            "form_action": form_action,
+            "form": form,
+            "error": error,
+            "is_edit": is_edit,
+            "roles": _ROLE_CHOICES,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/users", response_class=HTMLResponse)
+async def users_list(
+    request: Request,
+    current_user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    users = await user_crud.list_users(get_pool())
+    return templates.TemplateResponse(
+        request=request,
+        name="admin/users_list.html",
+        context={
+            "version": __version__,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "users": users,
+            "current_user": current_user,
+        },
+    )
+
+
+@router.get("/users/new", response_class=HTMLResponse)
+async def users_new(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    form: dict[str, object] = {
+        "auth_type": "local",
+        "role": UserRole.PUBLIC.value,
+        "enabled": True,
+    }
+    return await _render_user_form(
+        request,
+        title=request.state.t["admin_users_new"],
+        form_action="/admin/users",
+        form=form,
+        is_edit=False,
+    )
+
+
+@router.post("/users")
+async def users_create(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+    auth_type: str = Form("local"),
+    username: str = Form(...),
+    email: str | None = Form(None),
+    role: str = Form(...),
+    password: str | None = Form(None),
+    enabled: str | None = Form(None),
+) -> Response:
+    raw: dict[str, object] = {
+        "auth_type": auth_type,
+        "username": username,
+        "email": email,
+        "role": role,
+        "enabled": enabled == "1",
+    }
+
+    if role not in _ROLE_CHOICES:
+        return await _render_user_form(
+            request,
+            title=request.state.t["admin_users_new"],
+            form_action="/admin/users",
+            form=raw,
+            is_edit=False,
+            error=f"invalid role: {role!r}",
+            status_code=400,
+        )
+
+    role_enum = UserRole(role)
+
+    if auth_type == "api_key":
+        api_key = secrets.token_urlsafe(32)
+        try:
+            payload_ak = UserCreate(
+                username=username,
+                email=email or None,
+                role=role_enum,
+                enabled=enabled == "1",
+                api_key=api_key,
+            )
+        except ValidationError as exc:
+            return await _render_user_form(
+                request,
+                title=request.state.t["admin_users_new"],
+                form_action="/admin/users",
+                form=raw,
+                is_edit=False,
+                error=str(exc),
+                status_code=400,
+            )
+        try:
+            await user_crud.create_user(get_pool(), payload_ak)
+        except asyncpg.UniqueViolationError:
+            return await _render_user_form(
+                request,
+                title=request.state.t["admin_users_new"],
+                form_action="/admin/users",
+                form=raw,
+                is_edit=False,
+                error=f"user with username {username!r} already exists",
+                status_code=409,
+            )
+        # Show the generated key once — it won't be retrievable later.
+        return templates.TemplateResponse(
+            request=request,
+            name="admin/users_key_shown.html",
+            context={
+                "version": __version__,
+                "t": request.state.t,
+                "lang": request.state.lang,
+                "username": username,
+                "api_key": api_key,
+            },
+        )
+
+    # auth_type == "local"
+    try:
+        payload_local = UserCreateLocal(
+            username=username,
+            password=password or "",
+            email=email or None,
+            role=role_enum,
+        )
+    except ValidationError as exc:
+        return await _render_user_form(
+            request,
+            title=request.state.t["admin_users_new"],
+            form_action="/admin/users",
+            form=raw,
+            is_edit=False,
+            error=str(exc),
+            status_code=400,
+        )
+    try:
+        await user_crud.create_local_user(get_pool(), payload_local)
+    except asyncpg.UniqueViolationError:
+        return await _render_user_form(
+            request,
+            title=request.state.t["admin_users_new"],
+            form_action="/admin/users",
+            form=raw,
+            is_edit=False,
+            error=f"user with username {username!r} already exists",
+            status_code=409,
+        )
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/users/{user_id}/edit", response_class=HTMLResponse)
+async def users_edit(
+    user_id: int,
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    u = await user_crud.get_user_by_id(get_pool(), user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    form = u.model_dump()
+    return await _render_user_form(
+        request,
+        title=request.state.t["admin_users_edit"],
+        form_action=f"/admin/users/{user_id}",
+        form=form,
+        is_edit=True,
+    )
+
+
+@router.post("/users/{user_id}")
+async def users_update(
+    user_id: int,
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+    email: str | None = Form(None),
+    role: str = Form(...),
+    enabled: str | None = Form(None),
+) -> Response:
+    if role not in _ROLE_CHOICES:
+        existing = await user_crud.get_user_by_id(get_pool(), user_id)
+        if existing is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+        form = existing.model_dump()
+        form["role"] = role
+        return await _render_user_form(
+            request,
+            title=request.state.t["admin_users_edit"],
+            form_action=f"/admin/users/{user_id}",
+            form=form,
+            is_edit=True,
+            error=f"invalid role: {role!r}",
+            status_code=400,
+        )
+
+    payload = UserUpdate(
+        email=email or None,
+        role=UserRole(role),
+        enabled=enabled == "1",
+    )
+    updated = await user_crud.update_user(get_pool(), user_id, payload)
+    if updated is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/users/{user_id}/delete")
+async def users_delete(
+    user_id: int,
+    current_user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    if user_id == current_user.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="you cannot delete your own account",
+        )
+    deleted = await user_crud.delete_user(get_pool(), user_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
