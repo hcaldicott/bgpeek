@@ -19,6 +19,7 @@ from bgpeek.db import devices as device_crud
 from bgpeek.db import users as user_crud
 from bgpeek.db import webhooks as webhook_crud
 from bgpeek.db.pool import get_pool
+from bgpeek.models.credential import CredentialCreate, CredentialUpdate
 from bgpeek.models.device import DeviceCreate, DeviceUpdate
 from bgpeek.models.user import User, UserRole
 
@@ -324,3 +325,239 @@ async def devices_delete(
     if device is not None:
         await invalidate_device(device.name)
     return RedirectResponse("/admin/devices", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------------
+# SSH credentials
+# ---------------------------------------------------------------------------
+
+
+def _validate_credential_fields(auth_type: str, key_name: str | None, password: str | None) -> None:
+    """Mirror API-side validation for auth_type coherence."""
+    if "key" in auth_type and not key_name:
+        raise ValueError("key filename is required when auth type includes 'key'")
+    if "password" in auth_type and not password:
+        raise ValueError("password is required when auth type includes 'password'")
+
+
+async def _render_credential_form(
+    request: Request,
+    *,
+    title: str,
+    form_action: str,
+    form: dict[str, object],
+    is_edit: bool,
+    error: str | None = None,
+    status_code: int = 200,
+) -> Response:
+    t = request.state.t
+    return templates.TemplateResponse(
+        request=request,
+        name="admin/credentials_form.html",
+        context={
+            "version": __version__,
+            "t": t,
+            "lang": request.state.lang,
+            "title": title,
+            "form_action": form_action,
+            "form": form,
+            "error": error,
+            "password_hint": t["admin_creds_password_hint_edit"]
+            if is_edit
+            else t["admin_creds_password_hint_new"],
+            "password_placeholder": t["admin_creds_password_placeholder_edit"] if is_edit else "",
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/credentials", response_class=HTMLResponse)
+async def credentials_list(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    creds = await credential_crud.list_credentials(get_pool())
+    return templates.TemplateResponse(
+        request=request,
+        name="admin/credentials_list.html",
+        context={
+            "version": __version__,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "credentials": creds,
+        },
+    )
+
+
+@router.get("/credentials/new", response_class=HTMLResponse)
+async def credentials_new(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    form: dict[str, object] = {"auth_type": "key"}
+    return await _render_credential_form(
+        request,
+        title=request.state.t["admin_creds_new"],
+        form_action="/admin/credentials",
+        form=form,
+        is_edit=False,
+    )
+
+
+@router.post("/credentials")
+async def credentials_create(
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+    name: str = Form(...),
+    auth_type: str = Form(...),
+    username: str = Form(...),
+    key_name: str | None = Form(None),
+    password: str | None = Form(None),
+    description: str | None = Form(None),
+) -> Response:
+    raw: dict[str, object] = {
+        "name": name,
+        "auth_type": auth_type,
+        "username": username,
+        "key_name": key_name,
+        "description": description,
+    }
+    try:
+        _validate_credential_fields(auth_type, key_name or None, password or None)
+        payload = CredentialCreate(
+            name=name,
+            description=description or "",
+            auth_type=auth_type,
+            username=username,
+            key_name=key_name or None,
+            password=password or None,
+        )
+    except (ValidationError, ValueError) as exc:
+        return await _render_credential_form(
+            request,
+            title=request.state.t["admin_creds_new"],
+            form_action="/admin/credentials",
+            form=raw,
+            is_edit=False,
+            error=str(exc),
+            status_code=400,
+        )
+
+    try:
+        await credential_crud.create_credential(get_pool(), payload)
+    except asyncpg.UniqueViolationError:
+        return await _render_credential_form(
+            request,
+            title=request.state.t["admin_creds_new"],
+            form_action="/admin/credentials",
+            form=raw,
+            is_edit=False,
+            error=f"credential with name {name!r} already exists",
+            status_code=409,
+        )
+    return RedirectResponse("/admin/credentials", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/credentials/{credential_id}/edit", response_class=HTMLResponse)
+async def credentials_edit(
+    credential_id: int,
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    cred = await credential_crud.get_credential(get_pool(), credential_id)
+    if cred is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="credential not found")
+    form = cred.model_dump()
+    # Password is masked ("****") on read; don't pre-fill the input — empty = keep.
+    form["password"] = ""
+    return await _render_credential_form(
+        request,
+        title=request.state.t["admin_creds_edit"],
+        form_action=f"/admin/credentials/{credential_id}",
+        form=form,
+        is_edit=True,
+    )
+
+
+@router.post("/credentials/{credential_id}")
+async def credentials_update(
+    credential_id: int,
+    request: Request,
+    _user: User = Depends(_admin),  # noqa: B008
+    name: str = Form(...),
+    auth_type: str = Form(...),
+    username: str = Form(...),
+    key_name: str | None = Form(None),
+    password: str | None = Form(None),
+    description: str | None = Form(None),
+) -> Response:
+    raw: dict[str, object] = {
+        "name": name,
+        "auth_type": auth_type,
+        "username": username,
+        "key_name": key_name,
+        "description": description,
+    }
+
+    # On edit: empty password means "keep the existing one", so we omit it
+    # from the update payload. Non-empty means "replace".
+    update_fields: dict[str, object] = {
+        "name": name,
+        "auth_type": auth_type,
+        "username": username,
+        "key_name": key_name or None,
+        "description": description or "",
+    }
+    if password:
+        update_fields["password"] = password
+
+    try:
+        # When auth_type requires a password but none is being set (neither now nor
+        # previously), validation happens at the update layer. For key-only flows
+        # this check still enforces key_name presence.
+        existing = await credential_crud.get_credential(get_pool(), credential_id)
+        if existing is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="credential not found")
+        effective_password = password if password else (existing.password or None)
+        _validate_credential_fields(auth_type, key_name or None, effective_password)
+        payload = CredentialUpdate(**update_fields)  # type: ignore[arg-type]
+    except (ValidationError, ValueError) as exc:
+        return await _render_credential_form(
+            request,
+            title=request.state.t["admin_creds_edit"],
+            form_action=f"/admin/credentials/{credential_id}",
+            form=raw,
+            is_edit=True,
+            error=str(exc),
+            status_code=400,
+        )
+
+    try:
+        cred = await credential_crud.update_credential(get_pool(), credential_id, payload)
+    except asyncpg.UniqueViolationError:
+        return await _render_credential_form(
+            request,
+            title=request.state.t["admin_creds_edit"],
+            form_action=f"/admin/credentials/{credential_id}",
+            form=raw,
+            is_edit=True,
+            error=f"credential with name {name!r} already exists",
+            status_code=409,
+        )
+    if cred is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="credential not found")
+    return RedirectResponse("/admin/credentials", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/credentials/{credential_id}/delete")
+async def credentials_delete(
+    credential_id: int,
+    _user: User = Depends(_admin),  # noqa: B008
+) -> Response:
+    try:
+        deleted = await credential_crud.delete_credential(get_pool(), credential_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="credential not found")
+    return RedirectResponse("/admin/credentials", status_code=status.HTTP_303_SEE_OTHER)

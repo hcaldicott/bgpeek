@@ -361,3 +361,247 @@ def test_devices_delete_redirects_and_calls_crud() -> None:
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/devices"
     delete_mock.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Admin credentials CRUD
+# ---------------------------------------------------------------------------
+
+
+_CRED_ROW = {
+    "id": 1,
+    "name": "default",
+    "description": "",
+    "auth_type": "key",
+    "username": "lg-user",
+    "key_name": "id_rsa",
+    "password": None,
+    "created_at": _NOW,
+    "updated_at": _NOW,
+    "device_count": 2,
+}
+
+
+def test_credentials_list_renders() -> None:
+    from bgpeek.models.credential import CredentialWithUsage
+
+    cred = CredentialWithUsage.model_validate(_CRED_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[cred]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/credentials", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "default" in response.text
+    assert "lg-user" in response.text
+    assert "id_rsa" in response.text
+    assert "/admin/credentials/new" in response.text
+    assert "/admin/credentials/1/edit" in response.text
+
+
+def test_credentials_list_hides_delete_when_in_use() -> None:
+    from bgpeek.models.credential import CredentialWithUsage
+
+    cred = CredentialWithUsage.model_validate(_CRED_ROW)  # device_count=2
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[cred]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/credentials", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "/admin/credentials/1/delete" not in response.text
+
+
+def test_credentials_new_form_renders() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/credentials/new", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'name="name"' in response.text
+    assert 'name="auth_type"' in response.text
+    assert 'name="username"' in response.text
+    assert 'name="password"' in response.text
+
+
+def test_credentials_create_key_only() -> None:
+    create_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.credential_crud.create_credential", new=create_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/credentials",
+            headers={"X-API-Key": "any"},
+            data={
+                "name": "default",
+                "auth_type": "key",
+                "username": "lg-user",
+                "key_name": "id_rsa",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/credentials"
+    create_mock.assert_awaited_once()
+    payload = create_mock.await_args.args[1]
+    assert payload.name == "default"
+    assert payload.key_name == "id_rsa"
+
+
+def test_credentials_create_password_missing_rerenders() -> None:
+    create_mock = AsyncMock()
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.credential_crud.create_credential", new=create_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/credentials",
+            headers={"X-API-Key": "any"},
+            data={
+                "name": "cred1",
+                "auth_type": "password",
+                "username": "u",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+    assert "password is required" in response.text
+    create_mock.assert_not_awaited()
+
+
+def test_credentials_edit_form_omits_existing_password() -> None:
+    from bgpeek.models.credential import Credential
+
+    row = dict(_CRED_ROW)
+    row["password"] = "****"  # noqa: S105  # masked value from list query
+    row.pop("device_count")
+    cred = Credential.model_validate(row)
+
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.get_credential",
+            new=AsyncMock(return_value=cred),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get(
+            "/admin/credentials/1/edit",
+            headers={"X-API-Key": "any"},
+        )
+
+    assert response.status_code == 200
+    # Masked password must NOT be echoed into the form
+    assert "****" not in response.text
+    assert 'action="/admin/credentials/1"' in response.text
+
+
+def test_credentials_update_empty_password_keeps_existing() -> None:
+    from bgpeek.models.credential import Credential
+
+    row = dict(_CRED_ROW)
+    row["password"] = "****"  # noqa: S105
+    row.pop("device_count")
+    cred = Credential.model_validate(row)
+
+    update_mock = AsyncMock(return_value=cred)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.get_credential",
+            new=AsyncMock(return_value=cred),
+        ),
+        patch("bgpeek.ui.admin.credential_crud.update_credential", new=update_mock),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/credentials/1",
+            headers={"X-API-Key": "any"},
+            data={
+                "name": "default",
+                "auth_type": "key",
+                "username": "lg-user",
+                "key_name": "id_rsa",
+                # password field omitted — should keep existing
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    update_mock.assert_awaited_once()
+    payload = update_mock.await_args.args[2]
+    # password must not be in the update set when left blank
+    assert "password" not in payload.model_dump(exclude_unset=True)
+
+
+def test_credentials_delete_in_use_returns_409() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.delete_credential",
+            new=AsyncMock(side_effect=ValueError("credential 1 still referenced by 2 device(s)")),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.post(
+            "/admin/credentials/1/delete",
+            headers={"X-API-Key": "any"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 409
