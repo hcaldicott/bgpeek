@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from bgpeek.main import app
@@ -33,6 +34,68 @@ _NOC = User(
     enabled=True,
     created_at=_NOW,
 )
+
+
+# Every admin route, regardless of method, must reject non-admin users.
+# Parameterised so a new route added later is covered automatically if included
+# in this list. Centralises defense-in-depth coverage.
+_ADMIN_ROUTES: list[tuple[str, str]] = [
+    ("GET", "/admin"),
+    ("GET", "/admin/devices"),
+    ("GET", "/admin/devices/new"),
+    ("POST", "/admin/devices"),
+    ("GET", "/admin/devices/1/edit"),
+    ("POST", "/admin/devices/1"),
+    ("POST", "/admin/devices/1/delete"),
+    ("GET", "/admin/credentials"),
+    ("GET", "/admin/credentials/new"),
+    ("POST", "/admin/credentials"),
+    ("GET", "/admin/credentials/1/edit"),
+    ("POST", "/admin/credentials/1"),
+    ("POST", "/admin/credentials/1/delete"),
+    ("GET", "/admin/users"),
+    ("GET", "/admin/users/new"),
+    ("POST", "/admin/users"),
+    ("GET", "/admin/users/1/edit"),
+    ("POST", "/admin/users/1"),
+    ("POST", "/admin/users/1/delete"),
+    ("GET", "/admin/community-labels"),
+    ("GET", "/admin/community-labels/new"),
+    ("POST", "/admin/community-labels"),
+    ("GET", "/admin/community-labels/1/edit"),
+    ("POST", "/admin/community-labels/1"),
+    ("POST", "/admin/community-labels/1/delete"),
+]
+
+
+@pytest.mark.parametrize(("method", "path"), _ADMIN_ROUTES)
+def test_admin_routes_reject_noc(method: str, path: str) -> None:
+    """Every admin route returns 403 for a non-admin (NOC) caller."""
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_NOC),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+    ):
+        client = TestClient(app)
+        response = client.request(
+            method, path, headers={"X-API-Key": "any"}, follow_redirects=False
+        )
+
+    assert response.status_code == 403, (
+        f"{method} {path} returned {response.status_code}, expected 403"
+    )
+
+
+@pytest.mark.parametrize(("method", "path"), _ADMIN_ROUTES)
+def test_admin_routes_reject_unauthenticated(method: str, path: str) -> None:
+    """Every admin route returns 401 for an unauthenticated caller."""
+    client = TestClient(app)
+    response = client.request(method, path, follow_redirects=False)
+    assert response.status_code == 401, (
+        f"{method} {path} returned {response.status_code}, expected 401"
+    )
 
 
 def test_admin_index_no_auth_returns_401() -> None:

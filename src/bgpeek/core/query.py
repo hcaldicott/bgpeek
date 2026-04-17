@@ -167,6 +167,15 @@ async def execute_query(
                 target=request.target,
                 device_name=request.device_name,
             )
+        # Restricted devices are admin/NOC-only. Unprivileged callers see a
+        # "not found" error rather than a specific "restricted" one — we
+        # don't want to leak the existence of restricted devices.
+        if device.restricted and not _role_bypasses_filter(user_role):
+            raise QueryExecutionError(
+                f"device {request.device_name!r} not found",
+                target=request.target,
+                device_name=request.device_name,
+            )
         audit_entry.device_id = device.id
 
         # 2b. Circuit breaker check

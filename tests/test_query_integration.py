@@ -133,6 +133,97 @@ async def test_query_device_not_found(pool: asyncpg.Pool) -> None:
         )
 
 
+async def _seed_restricted_device(pool: asyncpg.Pool, name: str = "secret") -> None:
+    await device_crud.create_device(
+        pool,
+        DeviceCreate(
+            name=name,
+            address=IPv4Address("10.0.0.2"),
+            platform="juniper_junos",
+            restricted=True,
+        ),
+    )
+
+
+async def test_query_restricted_device_blocked_for_public(pool: asyncpg.Pool) -> None:
+    """Public users must not be able to query restricted devices."""
+    await _seed_restricted_device(pool)
+
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+        pytest.raises(QueryExecutionError, match="not found"),
+    ):
+        await execute_query(
+            QueryRequest(
+                device_name="secret", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"
+            ),
+            user_role="public",
+        )
+
+    # Confirm no SSH call was actually made by inspecting audit log.
+    audits = await list_audit_entries(pool, limit=10)
+    assert len(audits) == 1
+    assert audits[0].success is False
+
+
+async def test_query_restricted_device_blocked_for_anonymous(pool: asyncpg.Pool) -> None:
+    """Anonymous (no user_role) callers must also be blocked from restricted devices."""
+    await _seed_restricted_device(pool)
+
+    with pytest.raises(QueryExecutionError, match="not found"):
+        await execute_query(
+            QueryRequest(device_name="secret", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
+            user_role=None,
+        )
+
+
+async def test_query_restricted_device_allowed_for_admin(pool: asyncpg.Pool) -> None:
+    await _seed_restricted_device(pool)
+
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
+        result = await execute_query(
+            QueryRequest(device_name="secret", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
+            user_role="admin",
+        )
+
+    assert result.device_name == "secret"
+
+
+async def test_query_restricted_device_allowed_for_noc(pool: asyncpg.Pool) -> None:
+    await _seed_restricted_device(pool)
+
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
+        result = await execute_query(
+            QueryRequest(device_name="secret", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
+            user_role="noc",
+        )
+
+    assert result.device_name == "secret"
+
+
+async def test_query_non_restricted_device_still_works_for_public(pool: asyncpg.Pool) -> None:
+    """Regression: public users can query non-restricted devices."""
+    await _seed_device(pool)
+
+    with (
+        patch("bgpeek.core.query.SSHClient", return_value=_mock_ssh()),
+        patch("bgpeek.core.query.get_credential_for_device", _mock_credential()),
+    ):
+        result = await execute_query(
+            QueryRequest(device_name="rt1", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
+            user_role="public",
+        )
+
+    assert result.device_name == "rt1"
+
+
 async def test_query_device_disabled(pool: asyncpg.Pool) -> None:
     await _seed_device(pool)
     await device_crud.update_device(
