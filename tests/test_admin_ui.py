@@ -183,6 +183,10 @@ def test_devices_list_renders() -> None:
             "bgpeek.ui.admin.credential_crud.list_credentials",
             new=AsyncMock(return_value=[]),
         ),
+        patch(
+            "bgpeek.ui.admin.cb_failure_counts",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -193,6 +197,70 @@ def test_devices_list_renders() -> None:
     assert "juniper_junos" in response.text
     assert "/admin/devices/new" in response.text
     assert "/admin/devices/1/edit" in response.text
+
+
+def test_devices_list_renders_circuit_breaker_status() -> None:
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    # Default threshold is 3, so 2 recent failures render the warning badge.
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "bgpeek.ui.admin.cb_failure_counts",
+            new=AsyncMock(return_value={"rt1": 2}),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    # Warning badge: <count>/<threshold>
+    assert "2/3" in response.text
+
+
+def test_devices_list_renders_circuit_breaker_open() -> None:
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "bgpeek.ui.admin.cb_failure_counts",
+            new=AsyncMock(return_value={"rt1": 999}),  # well over any threshold
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "Open (blocked)" in response.text
 
 
 def test_devices_list_has_query_link() -> None:
@@ -213,6 +281,10 @@ def test_devices_list_has_query_link() -> None:
         patch(
             "bgpeek.ui.admin.credential_crud.list_credentials",
             new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "bgpeek.ui.admin.cb_failure_counts",
+            new=AsyncMock(return_value={}),
         ),
     ):
         client = TestClient(app)

@@ -11,8 +11,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
 from bgpeek import __version__
+from bgpeek.config import settings
 from bgpeek.core.auth import require_role
 from bgpeek.core.cache import invalidate_device
+from bgpeek.core.circuit_breaker import failure_counts as cb_failure_counts
 from bgpeek.core.commands import supported_platforms
 from bgpeek.core.community_labels import color_pairs as _color_pairs
 from bgpeek.core.community_labels import refresh_cache as refresh_label_cache
@@ -136,6 +138,7 @@ async def devices_list(
     devices = await device_crud.list_devices(pool)
     creds = await credential_crud.list_credentials(pool)
     credential_names = {c.id: c.name for c in creds}
+    failures = await cb_failure_counts([d.name for d in devices])
     return templates.TemplateResponse(
         request=request,
         name="admin/devices_list.html",
@@ -145,6 +148,8 @@ async def devices_list(
             "lang": request.state.lang,
             "devices": devices,
             "credential_names": credential_names,
+            "cb_failures": failures,
+            "cb_threshold": settings.circuit_breaker_threshold,
         },
     )
 

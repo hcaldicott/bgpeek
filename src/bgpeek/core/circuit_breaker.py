@@ -80,6 +80,35 @@ async def record_success(device_name: str) -> None:
         log.debug("circuit_breaker_redis_error", device=device_name, exc_info=True)
 
 
+async def failure_counts(device_names: list[str]) -> dict[str, int]:
+    """Return ``{device_name: recent_failure_count}`` for the given devices.
+
+    Only devices with at least one recent failure appear in the result — a
+    device absent from the returned dict is healthy. Returns an empty dict
+    if the breaker is disabled or Redis is unavailable.
+    """
+    if not settings.circuit_breaker_enabled or not device_names:
+        return {}
+
+    redis = await _get_redis()
+    if redis is None:
+        return {}
+
+    now = time.time()
+    try:
+        async with redis.pipeline(transaction=False) as pipe:
+            for name in device_names:
+                pipe.zcount(_key(name), now - settings.circuit_breaker_cooldown, "+inf")
+            counts = await pipe.execute()
+    except Exception:
+        log.debug("circuit_breaker_redis_error", exc_info=True)
+        return {}
+
+    return {
+        name: int(count) for name, count in zip(device_names, counts, strict=True) if int(count) > 0
+    }
+
+
 async def is_device_available(device_name: str) -> bool:
     """Return ``True`` if *device_name* has not tripped the circuit breaker.
 
