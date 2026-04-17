@@ -102,6 +102,7 @@ async def _render_device_form(
     title: str,
     form_action: str,
     form: dict[str, object],
+    device_id: int | None = None,
     error: str | None = None,
     status_code: int = 200,
 ) -> Response:
@@ -117,6 +118,7 @@ async def _render_device_form(
             "title": title,
             "form_action": form_action,
             "form": form,
+            "device_id": device_id,
             "error": error,
             "platforms": supported_platforms(),
             "credentials": creds,
@@ -246,6 +248,7 @@ async def devices_edit(
         title=request.state.t["admin_devices_edit"],
         form_action=f"/admin/devices/{device_id}",
         form=form,
+        device_id=device_id,
     )
 
 
@@ -302,6 +305,7 @@ async def devices_update(
             title=request.state.t["admin_devices_edit"],
             form_action=f"/admin/devices/{device_id}",
             form=raw,
+            device_id=device_id,
             error=str(exc),
             status_code=400,
         )
@@ -314,6 +318,7 @@ async def devices_update(
             title=request.state.t["admin_devices_edit"],
             form_action=f"/admin/devices/{device_id}",
             form=raw,
+            device_id=device_id,
             error=f"device with name {name!r} already exists",
             status_code=409,
         )

@@ -128,4 +128,66 @@
         </a>
     </div>
 </form>
+
+{% if device_id and form.credential_id %}
+<div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 max-w-2xl">
+    <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">{{ t.admin_devices_test_ssh }}</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">{{ t.admin_devices_test_ssh_hint }}</p>
+    <div class="flex items-center gap-3">
+        <button type="button" id="test-ssh-btn"
+                onclick="bgpeekTestSSH({{ form.credential_id }}, {{ device_id }})"
+                class="rounded-md border border-slate-300 dark:border-slate-600
+                       bg-white dark:bg-slate-700
+                       text-slate-700 dark:text-slate-200
+                       px-3 py-1.5 text-sm font-medium
+                       hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors
+                       disabled:opacity-50 disabled:cursor-not-allowed">
+            {{ t.admin_devices_test_ssh_button }}
+        </button>
+        <span id="test-ssh-result" class="text-sm"></span>
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+    window.bgpeekTestSSH = async function (credId, deviceId) {
+        var btn = document.getElementById("test-ssh-btn");
+        var out = document.getElementById("test-ssh-result");
+        btn.disabled = true;
+        out.textContent = "{{ t.admin_devices_test_ssh_running }}";
+        out.className = "text-sm text-slate-500 dark:text-slate-400";
+        try {
+            var resp = await fetch(
+                "/api/credentials/" + credId + "/test?device_id=" + deviceId,
+                { method: "POST", headers: { "Accept": "application/json" } }
+            );
+            if (!resp.ok) {
+                out.textContent = "✗ HTTP " + resp.status;
+                out.className = "text-sm text-rose-600 dark:text-rose-400";
+                return;
+            }
+            var data = await resp.json();
+            if (data.success) {
+                out.textContent = "✓ " + data.message;
+                out.className = "text-sm text-emerald-600 dark:text-emerald-400";
+            } else {
+                out.textContent = "✗ " + data.message;
+                out.className = "text-sm text-rose-600 dark:text-rose-400";
+            }
+        } catch (err) {
+            out.textContent = "✗ " + err;
+            out.className = "text-sm text-rose-600 dark:text-rose-400";
+        } finally {
+            btn.disabled = false;
+        }
+    };
+})();
+</script>
+{% elif device_id and not form.credential_id %}
+<div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 max-w-2xl">
+    <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">{{ t.admin_devices_test_ssh }}</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400">{{ t.admin_devices_test_ssh_no_credential }}</p>
+</div>
+{% endif %}
 {% endblock %}

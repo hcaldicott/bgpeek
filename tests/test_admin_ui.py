@@ -300,6 +300,86 @@ def test_devices_create_invalid_address_rerenders_form() -> None:
     create_mock.assert_not_awaited()
 
 
+def test_devices_new_form_has_no_test_ssh_button() -> None:
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices/new", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "test-ssh-btn" not in response.text
+    assert "Test SSH" not in response.text
+
+
+def test_devices_edit_form_shows_test_ssh_when_cred_set() -> None:
+    from bgpeek.models.device import Device
+
+    row = dict(_DEVICE_ROW)
+    row["credential_id"] = 7
+    device = Device.model_validate(row)
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.get_device_by_id",
+            new=AsyncMock(return_value=device),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices/1/edit", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "test-ssh-btn" in response.text
+    # The fetch target wires in the credential and device IDs
+    assert "bgpeekTestSSH(7, 1)" in response.text
+
+
+def test_devices_edit_form_shows_hint_without_credential() -> None:
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)  # credential_id=None
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.get_device_by_id",
+            new=AsyncMock(return_value=device),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices/1/edit", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert "test-ssh-btn" not in response.text
+    assert "Assign an SSH credential" in response.text
+
+
 def test_devices_edit_form_prefilled() -> None:
     from bgpeek.models.device import Device
 
