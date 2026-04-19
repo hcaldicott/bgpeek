@@ -64,6 +64,8 @@ python -c "import secrets; print(secrets.token_hex(32))"
 | `BGPEEK_SESSION_SECRET` | `change-me-session-secret` | **Required for OIDC.** Secret for session cookie signing |
 | `BGPEEK_ACCESS_MODE` | `guest` | Access mode: `closed` (login required), `guest` (anonymous with restrictions), `open` (anonymous full access) |
 | `BGPEEK_PUBLIC_OUTPUT_LEVEL` | `restricted` | Output detail for public/guest users: `restricted` (hide communities/LP/MED, mask RFC1918), `standard` (all parsed fields, no raw), `full` (same as NOC) |
+| `BGPEEK_MAX_PREFIX_V4` | `24` | Longest IPv4 prefix accepted at validation and kept in public output. Range 8–32. Raise to expose more-specifics (e.g. `27`) if your threat model allows it. Privileged roles bypass the output filter but input validation still applies. |
+| `BGPEEK_MAX_PREFIX_V6` | `48` | Longest IPv6 prefix accepted at validation and kept in public output. Range 16–128. |
 
 ### LDAP
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-04-19
+
+### Added
+
+- `BGPEEK_MAX_PREFIX_V4` (default `24`, range 8–32) and `BGPEEK_MAX_PREFIX_V6` (default `48`, range 16–128) — the previously hardcoded cutoff for input validation and public output filtering is now configurable. Operators can raise the limit to expose more-specifics (e.g. `/27`) if their threat model allows it. Defaults are unchanged.
+
+### Fixed
+
+- `BGPEEK_PUBLIC_OUTPUT_LEVEL=restricted` now correctly hides fields from both UI and JSON responses. Previously the level stripped communities, local_pref and MED from `parsed_routes` but left them intact in `filtered_output` (the CLI text), so unprivileged users still saw them via the "Show raw" toggle in the UI and via the JSON field in the API.
+
 ## [1.3.0] - 2026-04-19
 
 ### Added

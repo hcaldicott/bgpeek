@@ -226,8 +226,11 @@ Response:
 }
 ```
 
-For BGP queries, `filtered_output` has more-specific routes (/25-/32) removed
-for public users. Admin and NOC roles see unfiltered output.
+For BGP queries, `filtered_output` has prefixes longer than the configured
+`BGPEEK_MAX_PREFIX_V4` / `BGPEEK_MAX_PREFIX_V6` removed for public users
+(defaults: /24 and /48). At `BGPEEK_PUBLIC_OUTPUT_LEVEL=restricted` the
+field is cleared entirely and parsed_routes have communities, local_pref,
+and MED stripped. Admin and NOC roles see unfiltered output.
 
 Hostname targets are automatically resolved to IP addresses before the query is
 sent to the device. The original hostname and resolved IP are both recorded.
