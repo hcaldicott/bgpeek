@@ -418,9 +418,6 @@ async def index(
     # this device" link). Silently ignored if the name doesn't match an
     # enabled/visible device.
     preselect_device = location if location and any(d.name == location for d in devices) else None
-    header_links: list[tuple[str, str]] = [("/history", request.state.t["history"]), ("/api/docs", request.state.t["api_docs"])]
-    if user is not None and user.role == UserRole.ADMIN:
-        header_links.append(("/admin", request.state.t["admin"]))
 
     return templates.TemplateResponse(
         request=request,
@@ -434,7 +431,6 @@ async def index(
             "lang": request.state.lang,
             "lg_links": _lg_links,
             "preselect_device": preselect_device,
-            "header_links": header_links,
         },
     )
 

@@ -2,7 +2,8 @@
 
 {% block body %}
 {% set header_section = t.admin %}
-{% set header_links = [('/', t.looking_glass)] %}
+{% set header_links = header_links_for(t, user, ('/', t.looking_glass)) %}
+{% set header_show_peeringdb = true %}
 {% include "partials/header.html" %}
 
 {# ── Main layout: sidebar + content ─────────────────────────────── #}

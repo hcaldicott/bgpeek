@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 
 from bgpeek.config import settings
 from bgpeek.core.community_labels import annotate as annotate_community
@@ -21,6 +22,54 @@ from bgpeek.core.time_utils import timeago
 def _base_context(request: Request) -> dict[str, Any]:
     """Default context injected into every template render."""
     return {"user": getattr(request.state, "user", None)}
+
+
+def _role_value(user: Any) -> str | None:
+    """Return normalized role string for template user objects."""
+    if user is None:
+        return None
+    role = getattr(user, "role", None)
+    if role is None:
+        return None
+    return str(getattr(role, "value", role))
+
+
+@pass_context
+def header_links_for(
+    context: Any,
+    t: dict[str, str],
+    user: Any,
+    primary: tuple[str, str] | None = None,
+    current_section: str | None = None,
+) -> list[tuple[str, str]]:
+    """Build consistent header links for all SSR pages."""
+    if current_section is None:
+        request = context.get("request")
+        path = getattr(getattr(request, "url", None), "path", "") if request is not None else ""
+        if path.startswith("/admin"):
+            current_section = "admin"
+        elif path.startswith("/history"):
+            current_section = "history"
+
+    links: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def add(href: str, label: str) -> None:
+        if href in seen:
+            return
+        seen.add(href)
+        links.append((href, label))
+
+    if primary is not None:
+        add(primary[0], primary[1])
+
+    if current_section != "history":
+        add("/history", t["history"])
+    add("/api/docs", t["api_docs"])
+    if _role_value(user) == "admin" and current_section != "admin":
+        add("/admin", t["admin"])
+
+    return links
 
 
 templates = Jinja2Templates(
@@ -37,6 +86,7 @@ _peeringdb_url = f"https://www.peeringdb.com/asn/{_primary_asn}" if _has_asn els
 templates.env.filters["timeago"] = timeago
 templates.env.filters["annotate_community"] = annotate_community
 templates.env.globals["community_row_color"] = community_row_color
+templates.env.globals["header_links_for"] = header_links_for
 templates.env.globals["brand"] = {
     "site_name": _brand_site_name,
     "page_titles": settings.brand_page_titles,

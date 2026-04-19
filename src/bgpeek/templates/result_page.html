@@ -3,7 +3,7 @@
 {% block title %}{{ brand.site_name }} &middot; {{ brand.page_titles.get("result_page", t.shared_result | lower) }}{% endblock %}
 
 {% block body %}
-{% set header_links = [('/', t.new_query)] %}
+{% set header_links = header_links_for(t, user, ('/', t.new_query)) %}
 {% set header_show_peeringdb = true %}
 {% include "partials/header.html" %}
 
