@@ -379,3 +379,103 @@ class TestWebLogin:
         # Cookie should be cleared (max-age=0 or deleted)
         cookie_header = resp.headers.get("set-cookie", "")
         assert _COOKIE_NAME in cookie_header
+
+
+class TestAccountSettings:
+    def _build_settings_app(self, current_user: User) -> FastAPI:
+        from bgpeek.api.auth import router as auth_router
+        from bgpeek.main import I18nMiddleware
+
+        app = FastAPI()
+        app.add_middleware(I18nMiddleware)
+        app.include_router(auth_router)
+
+        async def _override_auth() -> User:
+            return current_user
+
+        app.dependency_overrides[authenticate] = _override_auth
+        return app
+
+    def _patch_settings_pool(self) -> object:
+        pool = AsyncMock()
+        return patch("bgpeek.api.auth.get_pool", return_value=pool)
+
+    def test_settings_page_renders_for_authenticated_user(self) -> None:
+        app = self._build_settings_app(_LOCAL_USER)
+        client = TestClient(app)
+        resp = client.get("/account/settings")
+        assert resp.status_code == status.HTTP_200_OK
+        assert "Account settings" in resp.text
+
+    def test_update_email_redirects_on_success(self) -> None:
+        app = self._build_settings_app(_LOCAL_USER)
+        with (
+            self._patch_settings_pool(),
+            patch(
+                "bgpeek.api.auth.crud.update_user",
+                new_callable=AsyncMock,
+                return_value=_LOCAL_USER.model_copy(update={"email": "new@example.com"}),
+            ),
+        ):
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post("/account/settings/email", data={"email": "new@example.com"})
+        assert resp.status_code == status.HTTP_303_SEE_OTHER
+        assert resp.headers["location"] == "/account/settings?updated=email"
+
+    def test_update_password_requires_matching_confirmation(self) -> None:
+        app = self._build_settings_app(_LOCAL_USER)
+        with self._patch_settings_pool():
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post(
+                "/account/settings/password",
+                data={
+                    "current_password": "secret123",
+                    "new_password": "new-secret-123",
+                    "confirm_password": "different-secret-123",
+                },
+            )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "do not match" in resp.text
+
+    def test_update_password_redirects_on_success(self) -> None:
+        app = self._build_settings_app(_LOCAL_USER)
+        with (
+            self._patch_settings_pool(),
+            patch(
+                "bgpeek.api.auth.crud.verify_local_user_password",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bgpeek.api.auth.crud.update_local_user_password",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post(
+                "/account/settings/password",
+                data={
+                    "current_password": "secret123",
+                    "new_password": "new-secret-123",
+                    "confirm_password": "new-secret-123",
+                },
+            )
+        assert resp.status_code == status.HTTP_303_SEE_OTHER
+        assert resp.headers["location"] == "/account/settings?updated=password"
+
+    def test_update_password_disallowed_for_non_local_accounts(self) -> None:
+        non_local_user = _ADMIN.model_copy(update={"auth_provider": "api_key"})
+        app = self._build_settings_app(non_local_user)
+        with self._patch_settings_pool():
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post(
+                "/account/settings/password",
+                data={
+                    "current_password": "secret123",
+                    "new_password": "new-secret-123",
+                    "confirm_password": "new-secret-123",
+                },
+            )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authentication provider" in resp.text

@@ -29,10 +29,11 @@
          data-user-menu-panel>
         {% if is_authenticated %}
         <div class="py-1">
-            <button type="button" disabled
-                    class="w-full text-left px-4 py-2 text-sm text-slate-400 dark:text-slate-500 cursor-not-allowed">
+            <a href="/account/settings"
+               class="block w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200
+                      hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                 {{ t.account_settings }}
-            </button>
+            </a>
         </div>
         {% endif %}
         <div class="border-t border-slate-100 dark:border-slate-700 py-1">

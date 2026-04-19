@@ -25,6 +25,7 @@ from bgpeek.models.user import (
     UserCreateLocal,
     UserPublic,
     UserRole,
+    UserUpdate,
 )
 from bgpeek.models.webhook import WebhookEvent
 
@@ -33,6 +34,39 @@ log = structlog.get_logger()
 router = APIRouter(tags=["auth"])
 
 _COOKIE_NAME = "bgpeek_token"
+
+
+def _normalize_email(raw: str) -> str | None:
+    """Normalize optional email form value."""
+    value = raw.strip()
+    return value or None
+
+
+def _render_account_settings(
+    request: Request,
+    user: User,
+    *,
+    email_error: str | None = None,
+    password_error: str | None = None,
+    success_message: str | None = None,
+    email_value: str | None = None,
+) -> HTMLResponse:
+    """Render account settings page with optional status messages."""
+    return templates.TemplateResponse(
+        request=request,
+        name="account_settings.html",
+        context={
+            "user": user,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "email_error": email_error,
+            "password_error": password_error,
+            "success_message": success_message,
+            "email_value": email_value if email_value is not None else (user.email or ""),
+            "can_change_password": user.auth_provider == "local",
+        },
+        status_code=status.HTTP_400_BAD_REQUEST if email_error or password_error else status.HTTP_200_OK,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +170,100 @@ async def logout() -> RedirectResponse:
         secure=settings.cookie_secure,
     )
     return response
+
+
+@router.get("/account/settings", response_class=HTMLResponse)
+async def account_settings_page(
+    request: Request,
+    user: User = Depends(authenticate),  # noqa: B008
+    updated: str | None = None,
+) -> HTMLResponse:
+    """Render account settings for the authenticated user."""
+    success_message: str | None = None
+    if updated == "email":
+        success_message = request.state.t["account_email_updated"]
+    elif updated == "password":
+        success_message = request.state.t["account_password_updated"]
+    return _render_account_settings(
+        request,
+        user,
+        success_message=success_message,
+    )
+
+
+@router.post("/account/settings/email", response_class=HTMLResponse)
+async def account_settings_update_email(
+    request: Request,
+    email: str = Form(""),
+    user: User = Depends(authenticate),  # noqa: B008
+) -> Response:
+    """Update the authenticated user's email address."""
+    normalized_email = _normalize_email(email)
+    if normalized_email is not None and len(normalized_email) > 255:
+        return _render_account_settings(
+            request,
+            user,
+            email_error=request.state.t["account_email_invalid"],
+            email_value=email,
+        )
+
+    updated_user = await crud.update_user(
+        get_pool(),
+        user.id,
+        UserUpdate(email=normalized_email),
+    )
+    if updated_user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    return RedirectResponse("/account/settings?updated=email", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/account/settings/password", response_class=HTMLResponse)
+async def account_settings_update_password(
+    request: Request,
+    current_password: str = Form(""),
+    new_password: str = Form(""),
+    confirm_password: str = Form(""),
+    user: User = Depends(authenticate),  # noqa: B008
+) -> Response:
+    """Change password for the authenticated local-auth user."""
+    if user.auth_provider != "local":
+        return _render_account_settings(
+            request,
+            user,
+            password_error=request.state.t["account_password_unavailable"],
+        )
+
+    if len(new_password) < 8:
+        return _render_account_settings(
+            request,
+            user,
+            password_error=request.state.t["account_password_too_short"],
+        )
+    if len(new_password) > 128:
+        return _render_account_settings(
+            request,
+            user,
+            password_error=request.state.t["account_password_too_long"],
+        )
+    if new_password != confirm_password:
+        return _render_account_settings(
+            request,
+            user,
+            password_error=request.state.t["account_password_mismatch"],
+        )
+
+    valid_current = await crud.verify_local_user_password(get_pool(), user.id, current_password)
+    if not valid_current:
+        return _render_account_settings(
+            request,
+            user,
+            password_error=request.state.t["account_password_invalid_current"],
+        )
+
+    updated = await crud.update_local_user_password(get_pool(), user.id, new_password)
+    if not updated:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    return RedirectResponse("/account/settings?updated=password", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/api/auth/me", response_model=UserPublic)
