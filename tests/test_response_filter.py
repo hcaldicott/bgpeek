@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from bgpeek.core.response_filter import filter_response
+from bgpeek.core.response_filter import filter_response, should_hide_raw_output
+from bgpeek.core.templates import templates
 from bgpeek.models.query import BGPRoute, QueryResponse, QueryType
 
 
@@ -248,3 +249,89 @@ def test_none_role_treated_as_public() -> None:
     assert result.parsed_routes[0].communities == []
     assert result.parsed_routes[0].local_pref is None
     assert result.parsed_routes[0].med is None
+
+
+# --- 11. should_hide_raw_output: hides 'Show raw' toggle at restricted level ---
+
+
+@pytest.mark.parametrize("role", ["admin", "noc"])
+def test_hide_raw_false_for_privileged_at_restricted(role: str) -> None:
+    with patch("bgpeek.core.response_filter.settings") as mock_settings:
+        mock_settings.public_output_level = "restricted"
+        assert should_hide_raw_output(role) is False
+
+
+@pytest.mark.parametrize("role", ["public", "guest", None])
+def test_hide_raw_true_for_unprivileged_at_restricted(role: str | None) -> None:
+    with patch("bgpeek.core.response_filter.settings") as mock_settings:
+        mock_settings.public_output_level = "restricted"
+        assert should_hide_raw_output(role) is True
+
+
+@pytest.mark.parametrize("level", ["standard", "full"])
+@pytest.mark.parametrize("role", ["public", "guest", None])
+def test_hide_raw_false_when_not_restricted(role: str | None, level: str) -> None:
+    with patch("bgpeek.core.response_filter.settings") as mock_settings:
+        mock_settings.public_output_level = level
+        assert should_hide_raw_output(role) is False
+
+
+# --- 12. Rendered HTML: 'Show raw' block is suppressed when hide_raw is true ---
+
+
+def _render_result_partial(*, hide_raw: bool) -> str:
+    """Render partials/result.html with a BGP result whose filtered_output
+    contains LP/communities/MED — the strings the restricted filter is meant
+    to suppress from unprivileged viewers.
+    """
+    resp = _make_bgp_response(
+        filtered_output=(
+            "8.8.8.0/24 from 10.0.0.1\n"
+            "    localpref 200, MED 100\n"
+            "    Communities: 64500:100 64500:200"
+        ),
+    )
+    template = templates.env.get_template("partials/result.html")
+    return template.render(
+        result=resp,
+        hide_raw=hide_raw,
+        t={
+            "prefix": "Prefix",
+            "next_hop": "Next Hop",
+            "as_path": "AS Path",
+            "origin": "Origin",
+            "lp": "LP",
+            "med": "MED",
+            "age": "Age",
+            "communities": "Communities",
+            "rpki": "RPKI",
+            "rpki_valid": "Valid",
+            "rpki_invalid": "Invalid",
+            "rpki_not_found": "Not found",
+            "rpki_unknown": "Not verified",
+            "show_raw": "Show detailed output",
+            "share": "Share",
+            "copied": "Copied!",
+            "cached": "cached",
+            "network_not_in_table": "Network not in table",
+            "network_not_in_table_hint": "hint",
+            "no_output": "No output",
+            "dns_resolved_notice": "dns",
+        },
+    )
+
+
+def test_template_hides_show_raw_block_when_hide_raw_true() -> None:
+    html = _render_result_partial(hide_raw=True)
+    # Toggle and the CLI text it contained must not appear.
+    assert "Show detailed output" not in html
+    assert "localpref" not in html
+    assert "Communities:" not in html
+    assert "MED 100" not in html
+
+
+def test_template_shows_show_raw_block_when_hide_raw_false() -> None:
+    html = _render_result_partial(hide_raw=False)
+    assert "Show detailed output" in html
+    assert "localpref" in html
+    assert "Communities:" in html

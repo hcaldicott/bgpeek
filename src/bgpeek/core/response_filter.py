@@ -31,6 +31,19 @@ def _is_privileged(user_role: str | None) -> bool:
         return False
 
 
+def should_hide_raw_output(user_role: str | None) -> bool:
+    """Whether to suppress the 'Show raw' toggle in the UI for this user.
+
+    At `restricted` level the parsed fields (communities, LP, MED) are stripped
+    from structured BGP routes, but `filtered_output` (the CLI text) still
+    contains them. Hiding the toggle keeps the restricted level coherent with
+    its name.
+    """
+    if _is_privileged(user_role):
+        return False
+    return settings.public_output_level == "restricted"
+
+
 def filter_response(response: QueryResponse, user_role: str | None) -> QueryResponse:
     """Return a filtered copy of the response based on the user's role.
 

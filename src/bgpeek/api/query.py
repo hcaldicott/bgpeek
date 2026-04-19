@@ -15,7 +15,11 @@ from bgpeek.core.auth import authenticate, guest_user, optional_auth
 from bgpeek.core.parallel import execute_parallel
 from bgpeek.core.query import QueryExecutionError, execute_query
 from bgpeek.core.rate_limit import rate_limit_query
-from bgpeek.core.response_filter import filter_response, filter_stored_result
+from bgpeek.core.response_filter import (
+    filter_response,
+    filter_stored_result,
+    should_hide_raw_output,
+)
 from bgpeek.core.templates import templates
 from bgpeek.core.validators import TargetValidationError
 from bgpeek.db.pool import get_pool
@@ -179,12 +183,14 @@ async def htmx_query(
             caller.username if caller else None,
         )
         result.result_id = str(result_id)
-        filtered = filter_response(result, caller.role.value if caller else None)
+        role = caller.role.value if caller else None
+        filtered = filter_response(result, role)
         return templates.TemplateResponse(
             request=request,
             name="partials/result.html",
             context={
                 "result": filtered,
+                "hide_raw": should_hide_raw_output(role),
                 "t": request.state.t,
                 "lang": request.state.lang,
             },
@@ -320,6 +326,7 @@ async def htmx_multi_query(
         name="partials/multi_result.html",
         context={
             "response": response,
+            "hide_raw": should_hide_raw_output(role),
             "t": request.state.t,
             "lang": request.state.lang,
         },
@@ -352,8 +359,8 @@ async def result_page(
 ) -> HTMLResponse:
     """Render a standalone HTML page for a shared result."""
     stored = await get_result(get_pool(), result_id)
+    role = user.role.value if user else None
     if stored is not None:
-        role = user.role.value if user else None
         stored = filter_stored_result(stored, role)
     return templates.TemplateResponse(
         request=request,
@@ -362,6 +369,7 @@ async def result_page(
             "stored": stored,
             "result_id": result_id,
             "user": user,
+            "hide_raw": should_hide_raw_output(role),
             "t": request.state.t,
             "lang": request.state.lang,
         },
