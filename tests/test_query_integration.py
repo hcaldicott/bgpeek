@@ -155,9 +155,7 @@ async def test_query_restricted_device_blocked_for_public(pool: asyncpg.Pool) ->
         pytest.raises(QueryExecutionError, match="not found"),
     ):
         await execute_query(
-            QueryRequest(
-                device_name="secret", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"
-            ),
+            QueryRequest(device_name="secret", query_type=QueryType.BGP_ROUTE, target="8.8.8.0/24"),
             user_role="public",
         )
 
