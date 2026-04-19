@@ -6,9 +6,11 @@ import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi_csrf_protect import CsrfProtect
 
 from bgpeek.config import settings
 from bgpeek.core.auth import authenticate, require_role
+from bgpeek.core.csrf import issue_csrf_token, set_csrf_cookie, validate_csrf
 from bgpeek.core.jwt import create_token
 from bgpeek.core.ldap import authenticate_ldap
 from bgpeek.core.oidc import extract_role_from_token, get_oidc_client
@@ -50,6 +52,7 @@ def _render_account_settings(
     password_error: str | None = None,
     success_message: str | None = None,
     email_value: str | None = None,
+    csrf_token: str = "",
 ) -> HTMLResponse:
     """Render account settings page with optional status messages."""
     return templates.TemplateResponse(
@@ -64,9 +67,35 @@ def _render_account_settings(
             "success_message": success_message,
             "email_value": email_value if email_value is not None else (user.email or ""),
             "can_change_password": user.auth_provider == "local",
+            "csrf_token": csrf_token,
         },
         status_code=status.HTTP_400_BAD_REQUEST if email_error or password_error else status.HTTP_200_OK,
     )
+
+
+def _render_account_settings_with_csrf(
+    request: Request,
+    user: User,
+    csrf_protect: CsrfProtect,
+    *,
+    email_error: str | None = None,
+    password_error: str | None = None,
+    success_message: str | None = None,
+    email_value: str | None = None,
+) -> HTMLResponse:
+    """Render account settings with a fresh CSRF token and cookie."""
+    csrf_token, signed_token = issue_csrf_token(csrf_protect)
+    response = _render_account_settings(
+        request,
+        user,
+        email_error=email_error,
+        password_error=password_error,
+        success_message=success_message,
+        email_value=email_value,
+        csrf_token=csrf_token,
+    )
+    set_csrf_cookie(csrf_protect, response, signed_token)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +205,7 @@ async def logout() -> RedirectResponse:
 async def account_settings_page(
     request: Request,
     user: User = Depends(authenticate),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
     updated: str | None = None,
 ) -> HTMLResponse:
     """Render account settings for the authenticated user."""
@@ -184,9 +214,10 @@ async def account_settings_page(
         success_message = request.state.t["account_email_updated"]
     elif updated == "password":
         success_message = request.state.t["account_password_updated"]
-    return _render_account_settings(
+    return _render_account_settings_with_csrf(
         request,
         user,
+        csrf_protect,
         success_message=success_message,
     )
 
@@ -195,14 +226,17 @@ async def account_settings_page(
 async def account_settings_update_email(
     request: Request,
     email: str = Form(""),
+    _csrf_ok: None = Depends(validate_csrf),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
     user: User = Depends(authenticate),  # noqa: B008
 ) -> Response:
     """Update the authenticated user's email address."""
     normalized_email = _normalize_email(email)
     if normalized_email is not None and len(normalized_email) > 255:
-        return _render_account_settings(
+        return _render_account_settings_with_csrf(
             request,
             user,
+            csrf_protect,
             email_error=request.state.t["account_email_invalid"],
             email_value=email,
         )
@@ -223,40 +257,47 @@ async def account_settings_update_password(
     current_password: str = Form(""),
     new_password: str = Form(""),
     confirm_password: str = Form(""),
+    _csrf_ok: None = Depends(validate_csrf),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
     user: User = Depends(authenticate),  # noqa: B008
 ) -> Response:
     """Change password for the authenticated local-auth user."""
     if user.auth_provider != "local":
-        return _render_account_settings(
+        return _render_account_settings_with_csrf(
             request,
             user,
+            csrf_protect,
             password_error=request.state.t["account_password_unavailable"],
         )
 
     if len(new_password) < 8:
-        return _render_account_settings(
+        return _render_account_settings_with_csrf(
             request,
             user,
+            csrf_protect,
             password_error=request.state.t["account_password_too_short"],
         )
     if len(new_password) > 128:
-        return _render_account_settings(
+        return _render_account_settings_with_csrf(
             request,
             user,
+            csrf_protect,
             password_error=request.state.t["account_password_too_long"],
         )
     if new_password != confirm_password:
-        return _render_account_settings(
+        return _render_account_settings_with_csrf(
             request,
             user,
+            csrf_protect,
             password_error=request.state.t["account_password_mismatch"],
         )
 
     valid_current = await crud.verify_local_user_password(get_pool(), user.id, current_password)
     if not valid_current:
-        return _render_account_settings(
+        return _render_account_settings_with_csrf(
             request,
             user,
+            csrf_protect,
             password_error=request.state.t["account_password_invalid_current"],
         )
 

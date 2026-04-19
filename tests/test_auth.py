@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
@@ -64,6 +65,12 @@ _DISABLED_USER = User(
 )
 
 _admin_dep = require_role(UserRole.ADMIN)
+
+
+def _extract_csrf_token(html: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match is not None
+    return match.group(1)
 
 
 def _build_app() -> FastAPI:
@@ -400,6 +407,11 @@ class TestAccountSettings:
         pool = AsyncMock()
         return patch("bgpeek.api.auth.get_pool", return_value=pool)
 
+    def _csrf_token_for_settings(self, client: TestClient) -> str:
+        response = client.get("/account/settings")
+        assert response.status_code == status.HTTP_200_OK
+        return _extract_csrf_token(response.text)
+
     def test_settings_page_renders_for_authenticated_user(self) -> None:
         app = self._build_settings_app(_LOCAL_USER)
         client = TestClient(app)
@@ -429,7 +441,11 @@ class TestAccountSettings:
             ),
         ):
             client = TestClient(app, follow_redirects=False)
-            resp = client.post("/account/settings/email", data={"email": "new@example.com"})
+            csrf_token = self._csrf_token_for_settings(client)
+            resp = client.post(
+                "/account/settings/email",
+                data={"email": "new@example.com", "csrf_token": csrf_token},
+            )
         assert resp.status_code == status.HTTP_303_SEE_OTHER
         assert resp.headers["location"] == "/account/settings?updated=email"
 
@@ -437,20 +453,34 @@ class TestAccountSettings:
         app = self._build_settings_app(_LOCAL_USER)
         with self._patch_settings_pool():
             client = TestClient(app, follow_redirects=False)
-            resp = client.post("/account/settings/email", data={"email": ("a" * 256) + "@example.com"})
+            csrf_token = self._csrf_token_for_settings(client)
+            resp = client.post(
+                "/account/settings/email",
+                data={"email": ("a" * 256) + "@example.com", "csrf_token": csrf_token},
+            )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert "valid email address" in resp.text
+
+    def test_update_email_rejects_missing_csrf(self) -> None:
+        app = self._build_settings_app(_LOCAL_USER)
+        with self._patch_settings_pool():
+            client = TestClient(app, follow_redirects=False)
+            resp = client.post("/account/settings/email", data={"email": "new@example.com"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["detail"] == "invalid CSRF token"
 
     def test_update_password_requires_matching_confirmation(self) -> None:
         app = self._build_settings_app(_LOCAL_USER)
         with self._patch_settings_pool():
             client = TestClient(app, follow_redirects=False)
+            csrf_token = self._csrf_token_for_settings(client)
             resp = client.post(
                 "/account/settings/password",
                 data={
                     "current_password": "secret123",
                     "new_password": "new-secret-123",
                     "confirm_password": "different-secret-123",
+                    "csrf_token": csrf_token,
                 },
             )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
@@ -472,12 +502,14 @@ class TestAccountSettings:
             ),
         ):
             client = TestClient(app, follow_redirects=False)
+            csrf_token = self._csrf_token_for_settings(client)
             resp = client.post(
                 "/account/settings/password",
                 data={
                     "current_password": "secret123",
                     "new_password": "new-secret-123",
                     "confirm_password": "new-secret-123",
+                    "csrf_token": csrf_token,
                 },
             )
         assert resp.status_code == status.HTTP_303_SEE_OTHER
@@ -494,12 +526,14 @@ class TestAccountSettings:
             ),
         ):
             client = TestClient(app, follow_redirects=False)
+            csrf_token = self._csrf_token_for_settings(client)
             resp = client.post(
                 "/account/settings/password",
                 data={
                     "current_password": "wrong-pass",
                     "new_password": "new-secret-123",
                     "confirm_password": "new-secret-123",
+                    "csrf_token": csrf_token,
                 },
             )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
@@ -510,12 +544,14 @@ class TestAccountSettings:
         app = self._build_settings_app(non_local_user)
         with self._patch_settings_pool():
             client = TestClient(app, follow_redirects=False)
+            csrf_token = self._csrf_token_for_settings(client)
             resp = client.post(
                 "/account/settings/password",
                 data={
                     "current_password": "secret123",
                     "new_password": "new-secret-123",
                     "confirm_password": "new-secret-123",
+                    "csrf_token": csrf_token,
                 },
             )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST

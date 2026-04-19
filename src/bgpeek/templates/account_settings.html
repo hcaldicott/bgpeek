@@ -32,6 +32,7 @@
                 </svg>
             </summary>
             <form method="post" action="/account/settings/email" class="border-t border-slate-200 dark:border-slate-700">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="p-4 space-y-4">
                     <label class="block">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.account_email_label }}</span>
@@ -65,6 +66,7 @@
             </summary>
             {% if can_change_password %}
             <form method="post" action="/account/settings/password" class="border-t border-slate-200 dark:border-slate-700">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="p-4 space-y-4">
                     <label class="block">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ t.account_current_password }}</span>

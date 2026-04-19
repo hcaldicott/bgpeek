@@ -8,6 +8,7 @@ from ipaddress import IPv4Address, IPv6Address, ip_address
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi_csrf_protect import CsrfProtect
 from pydantic import ValidationError
 
 from bgpeek import __version__
@@ -18,6 +19,7 @@ from bgpeek.core.circuit_breaker import failure_counts as cb_failure_counts
 from bgpeek.core.commands import supported_platforms
 from bgpeek.core.community_labels import color_pairs as _color_pairs
 from bgpeek.core.community_labels import refresh_cache as refresh_label_cache
+from bgpeek.core.csrf import issue_csrf_token, set_csrf_cookie, validate_csrf
 from bgpeek.core.templates import templates
 from bgpeek.db import audit as audit_crud
 from bgpeek.db import community_labels as label_crud
@@ -604,10 +606,16 @@ async def _render_user_form(
     form_action: str,
     form: dict[str, object],
     is_edit: bool,
+    csrf_protect: CsrfProtect | None = None,
     error: str | None = None,
     status_code: int = 200,
 ) -> Response:
-    return templates.TemplateResponse(
+    csrf_token = ""
+    signed_token: str | None = None
+    if csrf_protect is not None:
+        csrf_token, signed_token = issue_csrf_token(csrf_protect)
+
+    response = templates.TemplateResponse(
         request=request,
         name="admin/users_form.html",
         context={
@@ -620,18 +628,24 @@ async def _render_user_form(
             "error": error,
             "is_edit": is_edit,
             "roles": _ROLE_CHOICES,
+            "csrf_token": csrf_token,
         },
         status_code=status_code,
     )
+    if csrf_protect is not None and signed_token is not None:
+        set_csrf_cookie(csrf_protect, response, signed_token)
+    return response
 
 
 @router.get("/users", response_class=HTMLResponse)
 async def users_list(
     request: Request,
     current_user: User = Depends(_admin),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
 ) -> Response:
     users = await user_crud.list_users(get_pool())
-    return templates.TemplateResponse(
+    csrf_token, signed_token = issue_csrf_token(csrf_protect)
+    response = templates.TemplateResponse(
         request=request,
         name="admin/users_list.html",
         context={
@@ -640,14 +654,18 @@ async def users_list(
             "lang": request.state.lang,
             "users": users,
             "current_user": current_user,
+            "csrf_token": csrf_token,
         },
     )
+    set_csrf_cookie(csrf_protect, response, signed_token)
+    return response
 
 
 @router.get("/users/new", response_class=HTMLResponse)
 async def users_new(
     request: Request,
     _user: User = Depends(_admin),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
 ) -> Response:
     form: dict[str, object] = {
         "auth_type": "local",
@@ -660,6 +678,7 @@ async def users_new(
         form_action="/admin/users",
         form=form,
         is_edit=False,
+        csrf_protect=csrf_protect,
     )
 
 
@@ -667,6 +686,8 @@ async def users_new(
 async def users_create(
     request: Request,
     _user: User = Depends(_admin),  # noqa: B008
+    _csrf_ok: None = Depends(validate_csrf),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
     auth_type: str = Form("local"),
     username: str = Form(...),
     email: str | None = Form(None),
@@ -689,6 +710,7 @@ async def users_create(
             form_action="/admin/users",
             form=raw,
             is_edit=False,
+            csrf_protect=csrf_protect,
             error=f"invalid role: {role!r}",
             status_code=400,
         )
@@ -712,6 +734,7 @@ async def users_create(
                 form_action="/admin/users",
                 form=raw,
                 is_edit=False,
+                csrf_protect=csrf_protect,
                 error=str(exc),
                 status_code=400,
             )
@@ -724,6 +747,7 @@ async def users_create(
                 form_action="/admin/users",
                 form=raw,
                 is_edit=False,
+                csrf_protect=csrf_protect,
                 error=f"user with username {username!r} already exists",
                 status_code=409,
             )
@@ -755,6 +779,7 @@ async def users_create(
             form_action="/admin/users",
             form=raw,
             is_edit=False,
+            csrf_protect=csrf_protect,
             error=str(exc),
             status_code=400,
         )
@@ -767,6 +792,7 @@ async def users_create(
             form_action="/admin/users",
             form=raw,
             is_edit=False,
+            csrf_protect=csrf_protect,
             error=f"user with username {username!r} already exists",
             status_code=409,
         )
@@ -778,6 +804,7 @@ async def users_edit(
     user_id: int,
     request: Request,
     _user: User = Depends(_admin),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
 ) -> Response:
     u = await user_crud.get_user_by_id(get_pool(), user_id)
     if u is None:
@@ -789,6 +816,7 @@ async def users_edit(
         form_action=f"/admin/users/{user_id}",
         form=form,
         is_edit=True,
+        csrf_protect=csrf_protect,
     )
 
 
@@ -797,6 +825,8 @@ async def users_update(
     user_id: int,
     request: Request,
     _user: User = Depends(_admin),  # noqa: B008
+    _csrf_ok: None = Depends(validate_csrf),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),
     email: str | None = Form(None),
     role: str = Form(...),
     enabled: str | None = Form(None),
@@ -813,6 +843,7 @@ async def users_update(
             form_action=f"/admin/users/{user_id}",
             form=form,
             is_edit=True,
+            csrf_protect=csrf_protect,
             error=f"invalid role: {role!r}",
             status_code=400,
         )
@@ -832,6 +863,7 @@ async def users_update(
 async def users_delete(
     user_id: int,
     current_user: User = Depends(_admin),  # noqa: B008
+    _csrf_ok: None = Depends(validate_csrf),  # noqa: B008
 ) -> Response:
     if user_id == current_user.id:
         raise HTTPException(
