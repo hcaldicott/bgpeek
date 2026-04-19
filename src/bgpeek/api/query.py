@@ -48,7 +48,11 @@ def _friendly_error(detail: str, t: dict[str, str]) -> str:
     if "bogon" in lower:
         return t.get("error_bogon", detail)
     if "too specific" in lower:
-        return t.get("error_prefix_too_specific", detail)
+        template = t.get("error_prefix_too_specific", detail)
+        try:
+            return template.format(v4=settings.max_prefix_v4, v6=settings.max_prefix_v6)
+        except (KeyError, IndexError):
+            return template
     if "subnet mask not allowed" in lower:
         return t.get("error_cidr_not_allowed", detail)
     if "invalid ping/traceroute target" in lower:

@@ -114,7 +114,11 @@ async def execute_query(
 
         # 1. Validate target
         if request.query_type == QueryType.BGP_ROUTE:
-            validate_target(effective_target)
+            validate_target(
+                effective_target,
+                max_v4=settings.max_prefix_v4,
+                max_v6=settings.max_prefix_v6,
+            )
         else:
             # ping/traceroute: always reject targets that are meaningless
             # (default route, unspecified, broadcast, multicast, link-local) —
@@ -251,7 +255,11 @@ async def execute_query(
             else raw_output
         )
         if request.query_type == QueryType.BGP_ROUTE and not _role_bypasses_filter(user_role):
-            filtered_output = filter_route_text(cleaned_output)
+            filtered_output = filter_route_text(
+                cleaned_output,
+                max_v4=settings.max_prefix_v4,
+                max_v6=settings.max_prefix_v6,
+            )
         else:
             filtered_output = cleaned_output
 

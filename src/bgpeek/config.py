@@ -157,6 +157,18 @@ class Settings(BaseSettings):
         default="restricted",
         description="Output detail level for public/guest users: 'restricted' (hide communities/LP/MED, mask RFC1918), 'standard' (all parsed fields, no raw), 'full' (same as NOC)",
     )
+    max_prefix_v4: int = Field(
+        default=24,
+        ge=8,
+        le=32,
+        description="Longest IPv4 prefix length accepted at validation and kept in filtered output. Privileged roles (admin/NOC) bypass the output filter but input validation still applies. Operators who want to expose more-specifics (e.g. /27) can raise this.",
+    )
+    max_prefix_v6: int = Field(
+        default=48,
+        ge=16,
+        le=128,
+        description="Longest IPv6 prefix length accepted at validation and kept in filtered output.",
+    )
 
     # --- SSH ---
     ssh_username: str = Field(
