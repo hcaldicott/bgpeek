@@ -3,7 +3,6 @@
 {% block title %}{{ brand.site_name }} &middot; {{ brand.page_titles.get("history", t.history | lower) }}{% endblock %}
 
 {% block body %}
-{% set header_links = header_links_for(t, user, ('/', t.looking_glass)) %}
 {% set header_show_peeringdb = true %}
 {% include "partials/header.html" %}
 

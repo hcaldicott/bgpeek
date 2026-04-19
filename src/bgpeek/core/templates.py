@@ -7,7 +7,8 @@ its own ``Environment``, so filters/globals don't propagate.
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal, TypedDict
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -21,7 +22,10 @@ from bgpeek.core.time_utils import timeago
 
 def _base_context(request: Request) -> dict[str, Any]:
     """Default context injected into every template render."""
-    return {"user": getattr(request.state, "user", None)}
+    return {
+        "user": getattr(request.state, "user", None),
+        "current_path": request.url.path,
+    }
 
 
 def _role_value(user: Any) -> str | None:
@@ -34,40 +38,81 @@ def _role_value(user: Any) -> str | None:
     return str(getattr(role, "value", role))
 
 
+LinkKey = Literal["looking_glass", "history", "api_docs", "admin"]
+
+
+@dataclass(frozen=True)
+class HeaderLinkConfig:
+    """Static metadata for a header link entry."""
+
+    href: str
+    label_key: str
+    requires_admin: bool = False
+
+
+class HeaderLinkItem(TypedDict):
+    """Resolved link item consumed by the header template."""
+
+    href: str
+    label: str
+    active: bool
+
+
+HEADER_LINK_REGISTRY: dict[LinkKey, HeaderLinkConfig] = {
+    "looking_glass": HeaderLinkConfig(href="/", label_key="looking_glass"),
+    "history": HeaderLinkConfig(href="/history", label_key="history"),
+    "api_docs": HeaderLinkConfig(href="/api/docs", label_key="api_docs"),
+    "admin": HeaderLinkConfig(href="/admin", label_key="admin", requires_admin=True),
+}
+
+HEADER_LINK_ORDER: tuple[LinkKey, ...] = ("history", "api_docs", "admin")
+
+
 @pass_context
 def header_links_for(
     context: Any,
     t: dict[str, str],
     user: Any,
-    primary: tuple[str, str] | None = None,
-    current_section: str | None = None,
-) -> list[tuple[str, str]]:
+    current_path: str | None = None,
+) -> list[HeaderLinkItem]:
     """Build consistent header links for all SSR pages."""
-    if current_section is None:
+    if current_path is None:
+        current_path = context.get("current_path")
+    if current_path is None:
         request = context.get("request")
-        path = getattr(getattr(request, "url", None), "path", "") if request is not None else ""
-        if path.startswith("/admin"):
-            current_section = "admin"
-        elif path.startswith("/history"):
-            current_section = "history"
+        current_path = (
+            getattr(getattr(request, "url", None), "path", "") if request is not None else ""
+        )
+    if not current_path:
+        current_path = ""
 
-    links: list[tuple[str, str]] = []
+    links: list[HeaderLinkItem] = []
     seen: set[str] = set()
+
+    def is_active(href: str) -> bool:
+        if href == "/":
+            return not (
+                current_path.startswith("/history")
+                or current_path.startswith("/admin")
+                or current_path.startswith("/api")
+            )
+        return current_path == href or current_path.startswith(f"{href}/")
 
     def add(href: str, label: str) -> None:
         if href in seen:
             return
         seen.add(href)
-        links.append((href, label))
+        links.append({"href": href, "label": label, "active": is_active(href)})
 
-    if primary is not None:
-        add(primary[0], primary[1])
+    home = HEADER_LINK_REGISTRY["looking_glass"]
+    add(home.href, t[home.label_key])
 
-    if current_section != "history":
-        add("/history", t["history"])
-    add("/api/docs", t["api_docs"])
-    if _role_value(user) == "admin" and current_section != "admin":
-        add("/admin", t["admin"])
+    is_admin = _role_value(user) == "admin"
+    for key in HEADER_LINK_ORDER:
+        cfg = HEADER_LINK_REGISTRY[key]
+        if cfg.requires_admin and not is_admin:
+            continue
+        add(cfg.href, t[cfg.label_key])
 
     return links
 

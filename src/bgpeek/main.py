@@ -316,7 +316,7 @@ app = FastAPI(
     description=settings.brand_site_description,
     version=__version__,
     lifespan=lifespan,
-    docs_url="/api/docs" if settings.debug else None,
+    docs_url=None,
     redoc_url=None,
     openapi_url="/api/openapi.json" if settings.debug else None,
 )
@@ -486,6 +486,30 @@ async def history(
         request=request,
         name="history.html",
         context=ctx,
+    )
+
+
+@app.get("/api/docs", response_class=HTMLResponse, include_in_schema=False)
+async def api_docs_page(
+    request: Request,
+    user: User | None = Depends(optional_auth),  # noqa: B008
+) -> Response:
+    """Render API docs inside the branded application shell."""
+    if user is None:
+        if settings.access_mode == "closed":
+            return RedirectResponse(url="/auth/login", status_code=303)
+        if settings.access_mode == "guest":
+            user = guest_user()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="api_docs.html",
+        context={
+            "user": user,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "openapi_url": app.openapi_url,
+        },
     )
 
 
