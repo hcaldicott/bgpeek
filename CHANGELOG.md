@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-19
+
+### Added
+
+- Admin panel: web UI for managing devices, SSH credentials, users, community labels, and webhooks (CRUD for each).
+- Admin panel extras:
+  - per-device query stats on the devices list
+  - circuit breaker status per device
+  - "Query this device" quick link from the devices list
+  - "Test SSH" button on the device edit form
+  - community labels count on the landing page
+- `AGENTS.md` — guidance file for AI coding agents and human contributors (stack, layout, hard rules, workflow, adding a vendor platform, security notes).
+
+### Changed
+
+- `BGPEEK_PRIMARY_ASN` is now optional. When unset, `site_name` falls back to just `bgpeek` (no `AS<N>` prefix) and the PeeringDB icon is hidden regardless of `BGPEEK_PEERINGDB_LINK_ENABLED`. Behaviour is unchanged when the ASN is set.
+- Dev workflow: `compose.dev.yaml` now bundles a `tailwind` watcher container that rebuilds `static/css/tailwind.css` on template changes. No host `tailwindcss` binary required.
+
+### Fixed
+
+- Security: queries against devices flagged as `restricted` are no longer executed for unprivileged callers. Previously the device was correctly hidden from the dropdown and the REST device listing, but `POST /query` with a known-or-guessed name would still run the SSH command. Unprivileged callers now get the same "not found" response as for a non-existent device.
+
+### Internal
+
+- Device form UX: platform selector as a proper `<select>`, source v4/v6 fields stacked for readability.
+
 ## [1.2.0] - 2026-04-18
 
 ### Added
@@ -182,6 +208,7 @@ Initial public release.
 - SSH credential management guide
 - REST API reference with curl examples
 
+[1.3.0]: https://github.com/xeonerix/bgpeek/releases/tag/v1.3.0
 [1.2.0]: https://github.com/xeonerix/bgpeek/releases/tag/v1.2.0
 [1.1.1]: https://github.com/xeonerix/bgpeek/releases/tag/v1.1.1
 [1.1.0]: https://github.com/xeonerix/bgpeek/releases/tag/v1.1.0
