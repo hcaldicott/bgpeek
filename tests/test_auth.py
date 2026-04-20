@@ -315,6 +315,15 @@ class TestWebLogin:
         pool.execute = AsyncMock(return_value="UPDATE 1")
         return patch("bgpeek.api.auth.get_pool", return_value=pool)
 
+    def _patch_log_audit(self) -> object:
+        """Silence audit writes in unit tests that mock the pool at AsyncMock level.
+
+        log_audit calls pool.fetchrow which returns an AsyncMock coroutine by
+        default, which AuditEntry.model_validate cannot parse. Integration
+        tests with a real Postgres fixture exercise the audit path end-to-end.
+        """
+        return patch("bgpeek.api.auth.log_audit", new=AsyncMock(return_value=None))
+
     def test_login_page_renders(self) -> None:
         from bgpeek.api.auth import router as auth_router
         from bgpeek.main import I18nMiddleware
@@ -333,7 +342,12 @@ class TestWebLogin:
 
         app = FastAPI()
         app.include_router(auth_router)
-        with self._patch_api_pool(), self._patch_credentials(_LOCAL_USER), self._patch_ldap():
+        with (
+            self._patch_api_pool(),
+            self._patch_credentials(_LOCAL_USER),
+            self._patch_ldap(),
+            self._patch_log_audit(),
+        ):
             client = TestClient(app, follow_redirects=False)
             resp = client.post(
                 "/auth/login",
@@ -355,6 +369,7 @@ class TestWebLogin:
             self._patch_credentials(None),
             self._patch_ldap(None),
             self._patch_templates() as mock_tpl,
+            self._patch_log_audit(),
         ):
             mock_tpl.TemplateResponse.return_value = HTMLResponse(
                 "<html>error</html>", status_code=401
@@ -371,9 +386,10 @@ class TestWebLogin:
 
         app = FastAPI()
         app.include_router(auth_router)
-        client = TestClient(app, follow_redirects=False)
-        client.cookies.set(_COOKIE_NAME, "some-token")
-        resp = client.post("/auth/logout")
+        with self._patch_api_pool(), self._patch_log_audit():
+            client = TestClient(app, follow_redirects=False)
+            client.cookies.set(_COOKIE_NAME, "some-token")
+            resp = client.post("/auth/logout")
         assert resp.status_code == status.HTTP_303_SEE_OTHER
         assert resp.headers["location"] in ("/", "/auth/login")
         # Cookie should be cleared (max-age=0 or deleted)

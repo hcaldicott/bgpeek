@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from bgpeek.config import settings
+from bgpeek.core.audit_helpers import request_ctx, user_ctx
 from bgpeek.core.auth import authenticate, require_role
 from bgpeek.core.jwt import create_token
 from bgpeek.core.ldap import authenticate_ldap
@@ -15,7 +16,9 @@ from bgpeek.core.oidc import extract_role_from_token, get_oidc_client
 from bgpeek.core.rate_limit import rate_limit_login
 from bgpeek.core.templates import templates
 from bgpeek.db import users as crud
+from bgpeek.db.audit import log_audit
 from bgpeek.db.pool import get_pool
+from bgpeek.models.audit import AuditAction, AuditEntryCreate
 from bgpeek.models.user import (
     LoginRequest,
     LoginResponse,
@@ -80,6 +83,16 @@ async def login_submit(
 
     if user is None:
         log.info("web login failed", username=username)
+        await log_audit(
+            get_pool(),
+            AuditEntryCreate(
+                action=AuditAction.LOGIN,
+                success=False,
+                username=username,
+                error_message="invalid credentials",
+                **request_ctx(request),
+            ),
+        )
         return templates.TemplateResponse(
             request=request,
             name="login.html",
@@ -113,6 +126,16 @@ async def login_submit(
         max_age=max_age,
     )
 
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.LOGIN,
+            success=True,
+            **user_ctx(user),
+            **request_ctx(request),
+        ),
+    )
+
     from bgpeek.core.webhooks import dispatch_webhook
 
     await dispatch_webhook(
@@ -124,8 +147,22 @@ async def login_submit(
 
 
 @router.post("/auth/logout")
-async def logout() -> RedirectResponse:
+async def logout(request: Request) -> RedirectResponse:
     """Clear the auth cookie and redirect to login or main page."""
+    # Best-effort: pull the user out of the cookie if present so the audit row
+    # carries who logged out. The cookie middleware doesn't run on POST
+    # bodies, so we reach into `request.state` where the auth middleware
+    # attached it for the current request (if any).
+    user = getattr(request.state, "user", None)
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.LOGOUT,
+            success=True,
+            **user_ctx(user),
+            **request_ctx(request),
+        ),
+    )
     url = "/auth/login" if settings.access_mode in ("closed", "guest") else "/"
     response = RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(
@@ -147,6 +184,7 @@ async def whoami(user: User = Depends(authenticate)) -> User:  # noqa: B008
 @router.post("/api/auth/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    request: Request,
     _rl: None = Depends(rate_limit_login),  # noqa: B008
 ) -> LoginResponse:
     """Authenticate with username/password and receive a JWT token.
@@ -168,6 +206,16 @@ async def login(
             )
 
     if user is None:
+        await log_audit(
+            get_pool(),
+            AuditEntryCreate(
+                action=AuditAction.LOGIN,
+                success=False,
+                username=body.username,
+                error_message="invalid credentials",
+                **request_ctx(request),
+            ),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid username or password",
@@ -180,6 +228,16 @@ async def login(
     )
 
     token = create_token(user.id, user.username, user.role.value)
+
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.LOGIN,
+            success=True,
+            **user_ctx(user),
+            **request_ctx(request),
+        ),
+    )
 
     from bgpeek.core.webhooks import dispatch_webhook
 
@@ -288,31 +346,55 @@ _admin = require_role(UserRole.ADMIN)
 @router.post("/api/users", response_model=UserAdmin, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreate,
-    _caller: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> User:
     """Create a new API-key user (admin only)."""
     try:
-        return await crud.create_user(get_pool(), payload)
+        created = await crud.create_user(get_pool(), payload)
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=f"user with username {payload.username!r} already exists",
         ) from exc
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.CREATE_USER,
+            success=True,
+            **user_ctx(caller),
+            **request_ctx(request),
+            error_message=f"target_username={created.username}, auth=api_key",
+        ),
+    )
+    return created
 
 
 @router.post("/api/users/local", response_model=UserAdmin, status_code=status.HTTP_201_CREATED)
 async def create_local_user(
     payload: UserCreateLocal,
-    _caller: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> User:
     """Create a new local (password) user (admin only)."""
     try:
-        return await crud.create_local_user(get_pool(), payload)
+        created = await crud.create_local_user(get_pool(), payload)
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=f"user with username {payload.username!r} already exists",
         ) from exc
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.CREATE_USER,
+            success=True,
+            **user_ctx(caller),
+            **request_ctx(request),
+            error_message=f"target_username={created.username}, auth=local_password",
+        ),
+    )
+    return created
 
 
 @router.get("/api/users", response_model=list[UserAdmin])
@@ -326,9 +408,23 @@ async def list_users(
 @router.delete("/api/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    _caller: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> None:
     """Delete a user (admin only)."""
+    target = await crud.get_user_by_id(get_pool(), user_id)
     deleted = await crud.delete_user(get_pool(), user_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.DELETE_USER,
+            success=True,
+            **user_ctx(caller),
+            **request_ctx(request),
+            error_message=(
+                f"target_user_id={user_id}, target_username={target.username if target else None}"
+            ),
+        ),
+    )
