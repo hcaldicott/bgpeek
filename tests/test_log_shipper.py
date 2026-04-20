@@ -272,6 +272,7 @@ def _fresh_metrics() -> None:
     # Safety: if anything slipped, walk the registry for our names.
     for name in (
         "bgpeek_log_ship_queue_depth",
+        "bgpeek_log_ship_queue_max",
         "bgpeek_log_ship_events_total",
         "bgpeek_log_ship_dropped_total",
         "bgpeek_log_ship_delivered_total",
@@ -305,6 +306,7 @@ async def test_metrics_registered_on_install_and_removed_on_shutdown(
     await log_shipper.install_shipper()
     for name in (
         "bgpeek_log_ship_queue_depth",
+        "bgpeek_log_ship_queue_max",
         "bgpeek_log_ship_events_total",
         "bgpeek_log_ship_dropped_total",
         "bgpeek_log_ship_delivered_total",
@@ -315,9 +317,17 @@ async def test_metrics_registered_on_install_and_removed_on_shutdown(
     await log_shipper.shutdown_shipper()
     for name in (
         "bgpeek_log_ship_queue_depth",
+        "bgpeek_log_ship_queue_max",
         "bgpeek_log_ship_events_total",
     ):
         assert REGISTRY._names_to_collectors.get(name) is None, name  # noqa: SLF001
+
+
+@pytest.mark.usefixtures("_fresh_metrics")
+def test_queue_max_gauge_reports_configured_capacity() -> None:
+    shipper = LogShipper(url="http://x", queue_max=4242)
+    log_shipper._install_metrics(shipper)
+    assert log_shipper._queue_max_gauge._value.get() == 4242  # noqa: SLF001
 
 
 @pytest.mark.usefixtures("_fresh_metrics")

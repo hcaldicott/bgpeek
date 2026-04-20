@@ -48,6 +48,7 @@ _shipper: LogShipper | None = None
 # operators with shipping disabled don't see ghost `bgpeek_log_ship_*` series
 # in /metrics. Set/unset as a unit to keep the lifecycle tidy.
 _queue_depth_gauge: Gauge | None = None
+_queue_max_gauge: Gauge | None = None
 _events_counter: Counter | None = None
 _dropped_counter: Counter | None = None
 _delivered_counter: Counter | None = None
@@ -308,7 +309,7 @@ def _install_metrics(shipper: LogShipper) -> None:
     `set_function` so Prometheus pulls the current value at scrape time —
     no extra bookkeeping from the hot path.
     """
-    global _queue_depth_gauge, _events_counter, _dropped_counter
+    global _queue_depth_gauge, _queue_max_gauge, _events_counter, _dropped_counter
     global _delivered_counter, _failed_counter
     if _queue_depth_gauge is not None:
         return  # idempotent — second install_shipper is a no-op
@@ -317,6 +318,13 @@ def _install_metrics(shipper: LogShipper) -> None:
         "Events currently waiting in the log-shipper queue",
     )
     _queue_depth_gauge.set_function(lambda: float(shipper.queue_depth))
+    # Export the configured capacity so `queue_depth / queue_max` alerts stay
+    # self-contained (no Grafana variable that can drift from the live config).
+    _queue_max_gauge = Gauge(
+        "bgpeek_log_ship_queue_max",
+        "Configured queue capacity (BGPEEK_LOG_SHIP_QUEUE_MAX)",
+    )
+    _queue_max_gauge.set(float(shipper._queue.maxlen or 0))
     _events_counter = Counter(
         "bgpeek_log_ship_events_total",
         "Structlog events accepted into the log-shipper queue",
@@ -337,10 +345,11 @@ def _install_metrics(shipper: LogShipper) -> None:
 
 def _uninstall_metrics() -> None:
     """Unregister the log-shipper series on shutdown so re-install is clean."""
-    global _queue_depth_gauge, _events_counter, _dropped_counter
+    global _queue_depth_gauge, _queue_max_gauge, _events_counter, _dropped_counter
     global _delivered_counter, _failed_counter
     for collector in (
         _queue_depth_gauge,
+        _queue_max_gauge,
         _events_counter,
         _dropped_counter,
         _delivered_counter,
@@ -350,6 +359,7 @@ def _uninstall_metrics() -> None:
             with contextlib.suppress(KeyError):
                 REGISTRY.unregister(collector)
     _queue_depth_gauge = None
+    _queue_max_gauge = None
     _events_counter = None
     _dropped_counter = None
     _delivered_counter = None
