@@ -25,6 +25,7 @@ def _capture_log(event: str = "hello", **kw: object) -> str:
 def test_json_format_emits_valid_ndjson(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "log_format", "json")
     monkeypatch.setattr(settings, "log_level", "info")
+    monkeypatch.setattr(settings, "service_name", "bgpeek")
     configure_logging()
 
     output = _capture_log("hello", device="rt1", count=42).strip()
@@ -36,7 +37,40 @@ def test_json_format_emits_valid_ndjson(monkeypatch: pytest.MonkeyPatch) -> None
     assert payload["device"] == "rt1"
     assert payload["count"] == 42
     assert payload["level"] == "info"
+    assert payload["service"] == "bgpeek"
     assert "timestamp" in payload
+
+
+def test_service_name_overrides_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Operators with multiple instances partition streams via BGPEEK_SERVICE_NAME."""
+    monkeypatch.setattr(settings, "log_format", "json")
+    monkeypatch.setattr(settings, "log_level", "info")
+    monkeypatch.setattr(settings, "service_name", "bgpeek-edge-fra")
+    configure_logging()
+
+    output = _capture_log("hello").strip()
+    assert json.loads(output)["service"] == "bgpeek-edge-fra"
+
+
+def test_service_empty_name_falls_back_to_bgpeek(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "log_format", "json")
+    monkeypatch.setattr(settings, "log_level", "info")
+    monkeypatch.setattr(settings, "service_name", "")
+    configure_logging()
+
+    output = _capture_log("hello").strip()
+    assert json.loads(output)["service"] == "bgpeek"
+
+
+def test_event_may_override_service_when_explicitly_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit `service=...` kwarg in a log call wins over the processor default."""
+    monkeypatch.setattr(settings, "log_format", "json")
+    monkeypatch.setattr(settings, "log_level", "info")
+    monkeypatch.setattr(settings, "service_name", "bgpeek")
+    configure_logging()
+
+    output = _capture_log("hello", service="override").strip()
+    assert json.loads(output)["service"] == "override"
 
 
 def test_logfmt_format_emits_key_value_pairs(monkeypatch: pytest.MonkeyPatch) -> None:

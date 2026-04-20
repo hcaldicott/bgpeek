@@ -17,6 +17,8 @@ level and ISO-8601 timestamp land in every record regardless of renderer.
 from __future__ import annotations
 
 import logging
+from collections.abc import MutableMapping
+from typing import Any
 
 import structlog
 
@@ -35,6 +37,14 @@ _LEVELS: dict[str, int] = {
 _VALID_FORMATS: frozenset[str] = frozenset({"console", "json", "logfmt"})
 
 
+def _add_service(
+    logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """Attach `service=<name>` so downstream log backends can partition by deployment."""
+    event_dict.setdefault("service", settings.service_name or "bgpeek")
+    return event_dict
+
+
 def configure_logging() -> None:
     """Install the global structlog config. Idempotent — safe to call twice.
 
@@ -51,6 +61,7 @@ def configure_logging() -> None:
     shared: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
+        _add_service,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,

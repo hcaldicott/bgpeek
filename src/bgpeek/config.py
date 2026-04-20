@@ -244,6 +244,10 @@ class Settings(BaseSettings):
     )
 
     # --- Logging ---
+    service_name: str = Field(
+        default="bgpeek",
+        description="Service label attached to every structlog event as `service=<name>`. Useful when multiple bgpeek instances (or other services) ship into the same log backend — set a distinct value per deployment to partition VictoriaLogs / Loki streams.",
+    )
     log_level: str = Field(
         default="info",
         description="Minimum log level for structlog output: debug, info, warning, error, critical.",

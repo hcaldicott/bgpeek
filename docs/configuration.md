@@ -251,6 +251,7 @@ BGPEEK_BRAND_PAGE_TITLES='{"index":"AS152183 Home","login":"sign in","history":"
 
 | Variable | Default | Description |
 |---|---|---|
+| `BGPEEK_SERVICE_NAME` | `bgpeek` | Value used for the `service=<name>` label on every log event. Distinct per instance when multiple bgpeeks ship into one log backend; pick names like `bgpeek-fra` / `bgpeek-edge` to partition VictoriaLogs / Loki streams cleanly. |
 | `BGPEEK_LOG_LEVEL` | `info` | Minimum log level: `debug`, `info`, `warning`, `error`, `critical` |
 | `BGPEEK_LOG_FORMAT` | `console` | Renderer: `console` (human, colourless plain text), `json` (NDJSON, one event per line), `logfmt` (`key=value` pairs) |
 | `BGPEEK_LOG_SHIP_URL` | _(empty)_ | Optional HTTP endpoint that receives batched copies of every structlog event. Empty disables shipping; `stdout` remains the always-live sink regardless |
