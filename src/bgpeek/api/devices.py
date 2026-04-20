@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from bgpeek.core.audit_helpers import request_ctx, user_ctx
 from bgpeek.core.auth import authenticate, require_role
 from bgpeek.core.cache import invalidate_device
 from bgpeek.db import devices as crud
+from bgpeek.db.audit import log_audit
 from bgpeek.db.pool import get_pool
+from bgpeek.models.audit import AuditAction, AuditEntryCreate
 from bgpeek.models.device import Device, DeviceCreate, DeviceUpdate
 from bgpeek.models.user import User, UserRole
 from bgpeek.models.webhook import WebhookEvent
@@ -45,7 +48,8 @@ async def get_device(
 @router.post("", response_model=Device, status_code=status.HTTP_201_CREATED)
 async def create_device(
     payload: DeviceCreate,
-    _caller: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> Device:
     """Create a new device."""
     try:
@@ -54,6 +58,18 @@ async def create_device(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail=f"device with name {payload.name!r} already exists"
         ) from exc
+
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.CREATE_DEVICE,
+            success=True,
+            device_id=device.id,
+            device_name=device.name,
+            **user_ctx(caller),
+            **request_ctx(request),
+        ),
+    )
 
     from bgpeek.core.webhooks import dispatch_webhook
 
@@ -68,13 +84,26 @@ async def create_device(
 async def update_device(
     device_id: int,
     payload: DeviceUpdate,
-    _caller: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> Device:
     """Partially update a device."""
     device = await crud.update_device(get_pool(), device_id, payload)
     if device is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     await invalidate_device(device.name)
+
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.UPDATE_DEVICE,
+            success=True,
+            device_id=device.id,
+            device_name=device.name,
+            **user_ctx(caller),
+            **request_ctx(request),
+        ),
+    )
 
     from bgpeek.core.webhooks import dispatch_webhook
 
@@ -88,16 +117,29 @@ async def update_device(
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_device(
     device_id: int,
-    _caller: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> None:
     """Delete a device by id."""
-    # Look up the device name before deletion for cache invalidation.
+    # Look up the device name before deletion for cache invalidation + audit.
     device = await crud.get_device_by_id(get_pool(), device_id)
     deleted = await crud.delete_device(get_pool(), device_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     if device is not None:
         await invalidate_device(device.name)
+
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.DELETE_DEVICE,
+            success=True,
+            device_id=device_id,
+            device_name=device.name if device else None,
+            **user_ctx(caller),
+            **request_ctx(request),
+        ),
+    )
 
     from bgpeek.core.webhooks import dispatch_webhook
 

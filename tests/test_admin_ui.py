@@ -570,7 +570,10 @@ def test_devices_new_form_renders() -> None:
 
 
 def test_devices_create_redirects_and_calls_crud() -> None:
-    create_mock = AsyncMock()
+    from bgpeek.models.device import Device
+
+    created_device = Device.model_validate(_DEVICE_ROW)
+    create_mock = AsyncMock(return_value=created_device)
     with (
         patch(
             "bgpeek.core.auth.user_crud.get_user_by_api_key",
@@ -579,6 +582,7 @@ def test_devices_create_redirects_and_calls_crud() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.device_crud.create_device", new=create_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
         response = client.post(
@@ -766,6 +770,7 @@ def test_devices_delete_redirects_and_calls_crud() -> None:
         ),
         patch("bgpeek.ui.admin.device_crud.delete_device", new=delete_mock),
         patch("bgpeek.ui.admin.invalidate_device", new=AsyncMock()),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
         response = client.post(
@@ -1083,6 +1088,7 @@ def test_users_create_local_redirects() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
         response = client.post(
@@ -1144,6 +1150,7 @@ def test_users_create_api_key_shows_key_page() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.user_crud.create_user", new=create_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
         response = client.post(
@@ -1229,6 +1236,7 @@ def test_users_update_redirects() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.user_crud.update_user", new=update_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
         response = client.post(
@@ -1280,7 +1288,12 @@ def test_users_delete_other_redirects() -> None:
         ),
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.user_crud.get_user_by_id",
+            new=AsyncMock(return_value=_NOC),
+        ),
         patch("bgpeek.ui.admin.user_crud.delete_user", new=delete_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
         response = client.post(

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from bgpeek import __version__
 from bgpeek.config import settings
+from bgpeek.core.audit_helpers import request_ctx, user_ctx
 from bgpeek.core.auth import require_role
 from bgpeek.core.cache import invalidate_device
 from bgpeek.core.circuit_breaker import failure_counts as cb_failure_counts
@@ -27,7 +28,9 @@ from bgpeek.db import credentials as credential_crud
 from bgpeek.db import devices as device_crud
 from bgpeek.db import users as user_crud
 from bgpeek.db import webhooks as webhook_crud
+from bgpeek.db.audit import log_audit
 from bgpeek.db.pool import get_pool
+from bgpeek.models.audit import AuditAction, AuditEntryCreate
 from bgpeek.models.community_label import (
     ALLOWED_COLORS,
     CommunityLabelCreate,
@@ -181,7 +184,7 @@ async def devices_new(
 @router.post("/devices")
 async def devices_create(
     request: Request,
-    _user: User = Depends(_admin),  # noqa: B008
+    caller: User = Depends(_admin),  # noqa: B008
     name: str = Form(...),
     address: str = Form(...),
     platform: str = Form(...),
@@ -245,6 +248,17 @@ async def devices_create(
             error=f"device with name {name!r} already exists",
             status_code=409,
         )
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.CREATE_DEVICE,
+            success=True,
+            device_id=device.id,
+            device_name=device.name,
+            **user_ctx(caller),
+            **request_ctx(request),
+        ),
+    )
     await dispatch_webhook(
         WebhookEvent.DEVICE_CREATE,
         {"device_id": device.id, "device_name": device.name},
@@ -276,7 +290,7 @@ async def devices_edit(
 async def devices_update(
     device_id: int,
     request: Request,
-    _user: User = Depends(_admin),  # noqa: B008
+    caller: User = Depends(_admin),  # noqa: B008
     name: str = Form(...),
     address: str = Form(...),
     platform: str = Form(...),
@@ -345,6 +359,17 @@ async def devices_update(
     if device is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     await invalidate_device(device.name)
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.UPDATE_DEVICE,
+            success=True,
+            device_id=device.id,
+            device_name=device.name,
+            **user_ctx(caller),
+            **request_ctx(request),
+        ),
+    )
     await dispatch_webhook(
         WebhookEvent.DEVICE_UPDATE,
         {"device_id": device.id, "device_name": device.name},
@@ -356,7 +381,8 @@ async def devices_update(
 @router.post("/devices/{device_id}/delete")
 async def devices_delete(
     device_id: int,
-    _user: User = Depends(_admin),  # noqa: B008
+    request: Request,
+    caller: User = Depends(_admin),  # noqa: B008
 ) -> Response:
     device = await device_crud.get_device_by_id(get_pool(), device_id)
     deleted = await device_crud.delete_device(get_pool(), device_id)
@@ -364,6 +390,17 @@ async def devices_delete(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     if device is not None:
         await invalidate_device(device.name)
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.DELETE_DEVICE,
+            success=True,
+            device_id=device_id,
+            device_name=device.name if device else None,
+            **user_ctx(caller),
+            **request_ctx(request),
+        ),
+    )
     await dispatch_webhook(
         WebhookEvent.DEVICE_DELETE,
         {"device_id": device_id, "device_name": device.name if device else None},
@@ -684,7 +721,7 @@ async def users_new(
 @router.post("/users")
 async def users_create(
     request: Request,
-    _user: User = Depends(_admin),  # noqa: B008
+    caller: User = Depends(_admin),  # noqa: B008
     auth_type: str = Form("local"),
     username: str = Form(...),
     email: str | None = Form(None),
@@ -745,6 +782,16 @@ async def users_create(
                 error=f"user with username {username!r} already exists",
                 status_code=409,
             )
+        await log_audit(
+            get_pool(),
+            AuditEntryCreate(
+                action=AuditAction.CREATE_USER,
+                success=True,
+                **user_ctx(caller),
+                **request_ctx(request),
+                error_message=f"target_username={username}, auth=api_key, role={role}",
+            ),
+        )
         # Show the generated key once — it won't be retrievable later.
         return templates.TemplateResponse(
             request=request,
@@ -788,6 +835,16 @@ async def users_create(
             error=f"user with username {username!r} already exists",
             status_code=409,
         )
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.CREATE_USER,
+            success=True,
+            **user_ctx(caller),
+            **request_ctx(request),
+            error_message=f"target_username={username}, auth=local_password, role={role}",
+        ),
+    )
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -814,7 +871,7 @@ async def users_edit(
 async def users_update(
     user_id: int,
     request: Request,
-    _user: User = Depends(_admin),  # noqa: B008
+    caller: User = Depends(_admin),  # noqa: B008
     email: str | None = Form(None),
     role: str = Form(...),
     enabled: str | None = Form(None),
@@ -843,12 +900,25 @@ async def users_update(
     updated = await user_crud.update_user(get_pool(), user_id, payload)
     if updated is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.UPDATE_USER,
+            success=True,
+            **user_ctx(caller),
+            **request_ctx(request),
+            error_message=(
+                f"target_user_id={user_id}, target_username={updated.username}, role={role}"
+            ),
+        ),
+    )
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/users/{user_id}/delete")
 async def users_delete(
     user_id: int,
+    request: Request,
     current_user: User = Depends(_admin),  # noqa: B008
 ) -> Response:
     if user_id == current_user.id:
@@ -856,9 +926,22 @@ async def users_delete(
             status.HTTP_400_BAD_REQUEST,
             detail="you cannot delete your own account",
         )
+    target = await user_crud.get_user_by_id(get_pool(), user_id)
     deleted = await user_crud.delete_user(get_pool(), user_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
+    await log_audit(
+        get_pool(),
+        AuditEntryCreate(
+            action=AuditAction.DELETE_USER,
+            success=True,
+            **user_ctx(current_user),
+            **request_ctx(request),
+            error_message=(
+                f"target_user_id={user_id}, target_username={target.username if target else None}"
+            ),
+        ),
+    )
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 
