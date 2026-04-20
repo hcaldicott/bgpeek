@@ -15,6 +15,7 @@ class AuditAction(StrEnum):
     """High-level categories of auditable events."""
 
     QUERY = "query"
+    PROBE = "probe"
     LOGIN = "login"
     LOGOUT = "logout"
     CREATE_DEVICE = "create_device"

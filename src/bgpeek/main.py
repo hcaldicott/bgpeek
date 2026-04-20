@@ -29,6 +29,7 @@ from bgpeek.config import settings
 from bgpeek.core.auth import guest_user, optional_auth
 from bgpeek.core.i18n import SUPPORTED_LANGS, detect_language, get_translations
 from bgpeek.core.oidc import setup_oidc
+from bgpeek.core.probe import shutdown as shutdown_probes
 from bgpeek.core.redis import close_redis, get_redis, init_redis
 from bgpeek.core.templates import templates
 from bgpeek.core.webhooks import shutdown as shutdown_webhooks
@@ -286,6 +287,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await _cleanup_task
 
     await shutdown_webhooks()
+    await shutdown_probes()
     await close_redis()
     await close_pool()
     log.info("bgpeek shutting down")

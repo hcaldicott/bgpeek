@@ -266,6 +266,10 @@ def test_devices_list_renders() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -306,6 +310,10 @@ def test_devices_list_renders_circuit_breaker_status() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -341,6 +349,10 @@ def test_devices_list_renders_circuit_breaker_open() -> None:
         patch(
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
         ),
     ):
         client = TestClient(app)
@@ -380,6 +392,10 @@ def test_devices_list_renders_query_usage() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={1: (last_seen, 42)}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -416,6 +432,10 @@ def test_devices_list_renders_never_queried() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -450,6 +470,10 @@ def test_devices_list_has_query_link() -> None:
         patch(
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
         ),
     ):
         client = TestClient(app)

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Admin panel: creating, editing or deleting a device via `/admin/devices/*` no longer silently skips webhook delivery. Only the REST `/api/devices` paths fired `device_create`/`device_update`/`device_delete` events before; the SSR admin panel (which is what operators actually use) went directly through the CRUD layer. Parity restored — both surfaces now emit the same payload.
 - Admin devices list: the Health column no longer shows `• Healthy` for devices that have never had a successful query or probe. A new `• Unknown` state (slate bullet) is shown until the first success is recorded, so newly-added unreachable devices are visibly distinguishable from devices that are actually working.
 
+### Added
+
+- Async SSH reachability probe on admin device save. Creating or editing a device via `/admin/devices/*` now fires a fire-and-forget SSH connect against the device in the background; the result is written to `audit_log` as a new `probe` action. The Health badge flips from `Unknown` to `Healthy` (or to the failure state) automatically within a few seconds of save, so operators see connectivity problems in the list view instead of discovering them at first query. Pending probes are drained on application shutdown.
+
 ### Changed
 
 - `<select>` controls now render a consistent custom chevron positioned with a small gap from the right border, replacing the browser-default arrow which hugged the edge inconsistently across Chrome/Firefox/Safari. Applied to the home page Query type selector.

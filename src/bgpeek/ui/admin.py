@@ -18,6 +18,7 @@ from bgpeek.core.circuit_breaker import failure_counts as cb_failure_counts
 from bgpeek.core.commands import supported_platforms
 from bgpeek.core.community_labels import color_pairs as _color_pairs
 from bgpeek.core.community_labels import refresh_cache as refresh_label_cache
+from bgpeek.core.probe import schedule_probe
 from bgpeek.core.templates import templates
 from bgpeek.core.webhooks import dispatch_webhook
 from bgpeek.db import audit as audit_crud
@@ -248,6 +249,7 @@ async def devices_create(
         WebhookEvent.DEVICE_CREATE,
         {"device_id": device.id, "device_name": device.name},
     )
+    schedule_probe(device.id)
     return RedirectResponse("/admin/devices", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -347,6 +349,7 @@ async def devices_update(
         WebhookEvent.DEVICE_UPDATE,
         {"device_id": device.id, "device_name": device.name},
     )
+    schedule_probe(device.id)
     return RedirectResponse("/admin/devices", status_code=status.HTTP_303_SEE_OTHER)
 
 
