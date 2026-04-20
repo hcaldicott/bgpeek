@@ -19,6 +19,7 @@ from bgpeek.core.commands import supported_platforms
 from bgpeek.core.community_labels import color_pairs as _color_pairs
 from bgpeek.core.community_labels import refresh_cache as refresh_label_cache
 from bgpeek.core.templates import templates
+from bgpeek.core.webhooks import dispatch_webhook
 from bgpeek.db import audit as audit_crud
 from bgpeek.db import community_labels as label_crud
 from bgpeek.db import credentials as credential_crud
@@ -231,7 +232,7 @@ async def devices_create(
         )
 
     try:
-        await device_crud.create_device(get_pool(), payload)
+        device = await device_crud.create_device(get_pool(), payload)
     except asyncpg.UniqueViolationError:
         return await _render_device_form(
             request,
@@ -241,6 +242,10 @@ async def devices_create(
             error=f"device with name {name!r} already exists",
             status_code=409,
         )
+    await dispatch_webhook(
+        WebhookEvent.DEVICE_CREATE,
+        {"device_id": device.id, "device_name": device.name},
+    )
     return RedirectResponse("/admin/devices", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -336,6 +341,10 @@ async def devices_update(
     if device is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     await invalidate_device(device.name)
+    await dispatch_webhook(
+        WebhookEvent.DEVICE_UPDATE,
+        {"device_id": device.id, "device_name": device.name},
+    )
     return RedirectResponse("/admin/devices", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -350,6 +359,10 @@ async def devices_delete(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="device not found")
     if device is not None:
         await invalidate_device(device.name)
+    await dispatch_webhook(
+        WebhookEvent.DEVICE_DELETE,
+        {"device_id": device_id, "device_name": device.name if device else None},
+    )
     return RedirectResponse("/admin/devices", status_code=status.HTTP_303_SEE_OTHER)
 
 

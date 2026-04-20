@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Admin device form: saving any device with `source4` or `source6` set returned a 500. `asyncpg` cannot bind a Pydantic `IPv4Address`/`IPv6Address` to the TEXT columns used for source IPs, so every save with a non-empty source IP failed with `invalid input for query argument ... expected str, got IPv4Address`. `create_device`/`update_device` now serialise the payload with `model_dump(mode="json")`, which coerces IP objects to strings (and is a no-op for the `INET` address column, which accepts both).
+- Admin panel: creating, editing or deleting a device via `/admin/devices/*` no longer silently skips webhook delivery. Only the REST `/api/devices` paths fired `device_create`/`device_update`/`device_delete` events before; the SSR admin panel (which is what operators actually use) went directly through the CRUD layer. Parity restored — both surfaces now emit the same payload.
 
 ### Changed
 
