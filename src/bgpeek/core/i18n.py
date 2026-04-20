@@ -151,6 +151,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_devices_query_title": "Open the looking glass with this device preselected",
         "admin_devices_health": "Health",
         "admin_devices_health_healthy": "Healthy",
+        "admin_devices_health_unknown": "Unknown",
+        "admin_devices_health_unknown_hint": "No successful session recorded yet. Status will update after the first successful query or probe.",
         "admin_devices_health_open": "Open (blocked)",
         "admin_devices_health_recent_failures": "recent SSH failures",
         "admin_devices_usage_7d": "Usage (7d)",
@@ -284,6 +286,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "n_selected": "выбрано",
         "resolved_to": "разрешено в",
         "other_looking_glasses": "Другие Looking Glass",
+        "admin_devices_health_unknown": "Неизвестно",
+        "admin_devices_health_unknown_hint": "Ещё не было успешных сессий с устройством. Статус обновится после первого успешного запроса или пробы.",
     },
 }
 

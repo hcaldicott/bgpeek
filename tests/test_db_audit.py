@@ -8,7 +8,9 @@ from ipaddress import IPv4Address, IPv6Address
 import asyncpg
 
 from bgpeek.db import audit as crud
+from bgpeek.db import devices as device_crud
 from bgpeek.models.audit import AuditAction, AuditEntryCreate
+from bgpeek.models.device import DeviceCreate
 
 
 def _entry(**overrides: object) -> AuditEntryCreate:
@@ -214,3 +216,66 @@ async def test_action_enum_string_value(pool: asyncpg.Pool) -> None:
     await crud.log_audit(pool, _entry(action=AuditAction.QUERY))
     raw = await pool.fetchval("SELECT action FROM audit_log LIMIT 1")
     assert raw == "query"
+
+
+async def _make_device(pool: asyncpg.Pool, name: str) -> int:
+    dev = await device_crud.create_device(
+        pool,
+        DeviceCreate(
+            name=name,
+            address=IPv4Address("10.0.0.1"),
+            platform="juniper_junos",
+        ),
+    )
+    return dev.id
+
+
+async def test_devices_with_success_history_empty(pool: asyncpg.Pool) -> None:
+    assert await crud.devices_with_success_history(pool) == set()
+
+
+async def test_devices_with_success_history_collects_successful_queries(
+    pool: asyncpg.Pool,
+) -> None:
+    d1 = await _make_device(pool, "rt1")
+    d2 = await _make_device(pool, "rt2")
+    await crud.log_audit(pool, _entry(device_id=d1, success=True))
+    await crud.log_audit(pool, _entry(device_id=d2, success=True))
+    await crud.log_audit(pool, _entry(device_id=d1, success=True))  # duplicate
+    assert await crud.devices_with_success_history(pool) == {d1, d2}
+
+
+async def test_devices_with_success_history_skips_failures(pool: asyncpg.Pool) -> None:
+    d1 = await _make_device(pool, "rt1")
+    d2 = await _make_device(pool, "rt2")
+    await crud.log_audit(pool, _entry(device_id=d1, success=False))
+    await crud.log_audit(pool, _entry(device_id=d2, success=True))
+    assert await crud.devices_with_success_history(pool) == {d2}
+
+
+async def test_devices_with_success_history_skips_non_device_actions(
+    pool: asyncpg.Pool,
+) -> None:
+    # Login events carry no device_id; they must not influence the set.
+    d1 = await _make_device(pool, "rt1")
+    await crud.log_audit(pool, _entry(action=AuditAction.LOGIN, device_id=None, success=True))
+    await crud.log_audit(pool, _entry(device_id=d1, success=True))
+    assert await crud.devices_with_success_history(pool) == {d1}
+
+
+async def test_devices_with_success_history_counts_probes(pool: asyncpg.Pool) -> None:
+    # Probe events are written by the async reachability probe on device save.
+    # Using raw SQL here because AuditAction.PROBE is introduced in the same
+    # change set as this helper and the enum may not yet list it in tests that
+    # only exercise the DB layer.
+    d_ok = await _make_device(pool, "rt-ok")
+    d_fail = await _make_device(pool, "rt-fail")
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id) VALUES ('probe', TRUE, $1)",
+        d_ok,
+    )
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id) VALUES ('probe', FALSE, $1)",
+        d_fail,
+    )
+    assert await crud.devices_with_success_history(pool) == {d_ok}

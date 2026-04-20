@@ -134,6 +134,26 @@ async def device_query_stats(
     return {int(r["device_id"]): (r["last_query"], int(r["query_count"])) for r in rows}
 
 
+async def devices_with_success_history(pool: asyncpg.Pool) -> set[int]:
+    """Return device_ids that have at least one successful query or probe on record.
+
+    Used by the admin devices list to distinguish devices that have never been
+    talked to successfully (show as "Unknown") from devices that have been
+    reached at least once (eligible for "Healthy"). A never-queried device
+    cannot honestly be rendered as Healthy.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT device_id
+        FROM audit_log
+        WHERE device_id IS NOT NULL
+          AND success IS TRUE
+          AND action IN ('query', 'probe')
+        """
+    )
+    return {int(r["device_id"]) for r in rows}
+
+
 async def cleanup_old_entries(pool: asyncpg.Pool, ttl_days: int) -> int:
     """Delete audit entries older than ``ttl_days``. Returns deleted row count."""
     result: str = await pool.execute(

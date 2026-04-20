@@ -69,7 +69,13 @@
                 </td>
                 <td class="px-4 py-2">
                     {% set cb_count = cb_failures.get(device.name, 0) %}
-                    {% if cb_count == 0 %}
+                    {% if cb_count == 0 and device.id not in success_history %}
+                    <span class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"
+                          title="{{ t.admin_devices_health_unknown_hint }}">
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+                        {{ t.admin_devices_health_unknown }}
+                    </span>
+                    {% elif cb_count == 0 %}
                     <span class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                         {{ t.admin_devices_health_healthy }}
