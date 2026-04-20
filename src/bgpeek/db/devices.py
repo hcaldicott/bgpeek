@@ -41,24 +41,27 @@ async def get_device_by_name(pool: asyncpg.Pool, name: str) -> Device | None:
 
 async def create_device(pool: asyncpg.Pool, payload: DeviceCreate) -> Device:
     """Insert a new device. Raises `asyncpg.UniqueViolationError` on duplicate name."""
+    # mode="json" coerces IPvXAddress → str so asyncpg can bind source4/source6
+    # (stored as TEXT) without a DataError. INET columns (address) accept either.
+    data = payload.model_dump(mode="json")
     row = await pool.fetchrow(
         """
         INSERT INTO devices (name, address, port, platform, description, location, region, enabled, restricted, credential_id, source4, source6)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
         """,
-        payload.name,
-        payload.address,
-        payload.port,
-        payload.platform,
-        payload.description,
-        payload.location,
-        payload.region,
-        payload.enabled,
-        payload.restricted,
-        payload.credential_id,
-        payload.source4,
-        payload.source6,
+        data["name"],
+        data["address"],
+        data["port"],
+        data["platform"],
+        data["description"],
+        data["location"],
+        data["region"],
+        data["enabled"],
+        data["restricted"],
+        data["credential_id"],
+        data["source4"],
+        data["source6"],
     )
     assert row is not None
     return Device.model_validate(dict(row))
@@ -87,7 +90,9 @@ _UPDATABLE_COLUMNS: frozenset[str] = frozenset(
 
 async def update_device(pool: asyncpg.Pool, device_id: int, payload: DeviceUpdate) -> Device | None:
     """Apply a partial update; returns the updated row or None if not found."""
-    fields = payload.model_dump(exclude_unset=True)
+    # mode="json" coerces IPvXAddress → str so asyncpg can bind source4/source6
+    # (stored as TEXT) without a DataError. INET columns (address) accept either.
+    fields = payload.model_dump(exclude_unset=True, mode="json")
     if not fields:
         return await get_device_by_id(pool, device_id)
 
