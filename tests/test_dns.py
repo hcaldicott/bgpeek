@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from bgpeek.core.dns import DNSResolutionError, ResolvedTarget, resolve_target
+from bgpeek.core.dns import DNSResolutionError, ResolvedTarget, classify_target, resolve_target
+from bgpeek.core.validators import TargetValidationError
 
 
 @pytest.mark.asyncio
@@ -163,3 +164,97 @@ async def test_resolve_no_results() -> None:
 
         with pytest.raises(DNSResolutionError, match="no addresses returned"):
             await resolve_target("empty.example.com")
+
+
+class TestClassifyTarget:
+    @pytest.mark.parametrize(
+        ("target", "expected"),
+        [
+            ("1.2.3.4", "ip"),
+            ("2001:db8::1", "ip"),
+            ("::1", "ip"),
+            ("1.2.3.0/24", "cidr"),
+            ("2001:db8::/32", "cidr"),
+            ("1.2.3.4/32", "cidr"),
+            ("example.com", "hostname"),
+            ("one.two.three.four", "hostname"),
+            ("not-an-ip/still-hostname", "hostname"),  # has slash but not a network
+            ("garbage", "hostname"),
+        ],
+    )
+    def test_classifies(self, target: str, expected: str) -> None:
+        assert classify_target(target) == expected
+
+    def test_strips_whitespace(self) -> None:
+        assert classify_target("  1.2.3.4  ") == "ip"
+
+
+class TestAllowedTargetTypesGate:
+    """End-to-end: resolve_target rejects kinds outside settings.allowed_target_types."""
+
+    @pytest.mark.asyncio
+    async def test_hostname_rejected_when_not_in_allow_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("bgpeek.core.dns.settings.allowed_target_types", "ip,cidr")
+        with pytest.raises(TargetValidationError, match="hostname targets are disabled"):
+            await resolve_target("example.com")
+
+    @pytest.mark.asyncio
+    async def test_cidr_rejected_when_not_in_allow_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("bgpeek.core.dns.settings.allowed_target_types", "ip,hostname")
+        with pytest.raises(TargetValidationError, match="cidr targets are disabled"):
+            await resolve_target("192.0.2.0/24")
+
+    @pytest.mark.asyncio
+    async def test_ip_rejected_when_not_in_allow_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("bgpeek.core.dns.settings.allowed_target_types", "cidr,hostname")
+        with pytest.raises(TargetValidationError, match="ip targets are disabled"):
+            await resolve_target("1.2.3.4")
+
+    @pytest.mark.asyncio
+    async def test_ip_accepted_under_default_allow_list(self) -> None:
+        # No monkeypatch — default is ip,cidr,hostname.
+        result = await resolve_target("1.2.3.4")
+        assert result.is_hostname is False
+        assert result.resolved == "1.2.3.4"
+
+
+class TestConfigAllowedTargetTypes:
+    def test_default(self) -> None:
+        from bgpeek.config import Settings
+
+        s = Settings()
+        assert s.allowed_target_types_set == frozenset({"ip", "cidr", "hostname"})
+
+    def test_single_kind(self) -> None:
+        from bgpeek.config import Settings
+
+        s = Settings(allowed_target_types="ip")
+        assert s.allowed_target_types_set == frozenset({"ip"})
+
+    def test_normalises_case_and_whitespace(self) -> None:
+        from bgpeek.config import Settings
+
+        s = Settings(allowed_target_types="IP, CIDR ")
+        assert s.allowed_target_types_set == frozenset({"ip", "cidr"})
+
+    def test_empty_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        from bgpeek.config import Settings
+
+        with pytest.raises(ValidationError, match="at least one"):
+            Settings(allowed_target_types="")
+
+    def test_unknown_kind_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        from bgpeek.config import Settings
+
+        with pytest.raises(ValidationError, match="unknown kind"):
+            Settings(allowed_target_types="ip,url")

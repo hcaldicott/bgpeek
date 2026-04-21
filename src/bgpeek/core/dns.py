@@ -10,6 +10,7 @@ from ipaddress import IPv4Address, ip_address, ip_network
 import structlog
 
 from bgpeek.config import settings
+from bgpeek.core.validators import TargetValidationError
 
 log = structlog.get_logger(__name__)
 
@@ -33,6 +34,32 @@ class ResolvedTarget:
     all_addresses: list[str] = field(default_factory=list)
 
 
+def classify_target(target: str) -> str:
+    """Return ``'ip'``, ``'cidr'``, or ``'hostname'`` for a raw target string.
+
+    - ``'ip'`` = bare IPv4/IPv6 address with no prefix slash
+    - ``'cidr'`` = valid network in prefix notation (``1.2.3.0/24``, ``2001:db8::/32``)
+    - ``'hostname'`` = anything else that could be a DNS name
+
+    The classification is purely syntactic — it says nothing about whether the
+    target is routable, reachable, or resolvable. Use for allow-list checks
+    only; actual validation still happens downstream in validators / DNS.
+    """
+    stripped = target.strip()
+    try:
+        ip_address(stripped)
+        return "ip"
+    except ValueError:
+        pass
+    if "/" in stripped:
+        try:
+            ip_network(stripped, strict=False)
+            return "cidr"
+        except ValueError:
+            pass
+    return "hostname"
+
+
 def _is_ip_or_prefix(target: str) -> bool:
     """Return True if *target* is already an IP address or CIDR prefix."""
     try:
@@ -53,10 +80,21 @@ async def resolve_target(target: str) -> ResolvedTarget:
 
     If *target* is already an IP address or CIDR prefix, return it as-is.
     If *target* is a hostname, resolve via :func:`asyncio.get_event_loop().getaddrinfo`.
+    Rejects targets whose syntactic kind is outside ``settings.allowed_target_types``
+    with :class:`TargetValidationError` (maps to HTTP 400) before any DNS work.
     """
     target = target.strip()
     if not target:
         raise DNSResolutionError(target, "empty target")
+
+    kind = classify_target(target)
+    allowed = settings.allowed_target_types_set
+    if kind not in allowed:
+        raise TargetValidationError(
+            f"{kind} targets are disabled on this deployment (allowed: "
+            f"{', '.join(sorted(allowed))})",
+            target,
+        )
 
     if _is_ip_or_prefix(target):
         return ResolvedTarget(

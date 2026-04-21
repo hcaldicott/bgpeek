@@ -239,6 +239,7 @@ BGPEEK_BRAND_PAGE_TITLES='{"index":"AS152183 Home","login":"sign in","history":"
 |---|---|---|
 | `BGPEEK_DEFAULT_LANG` | `en` | Default UI language (must be listed in `BGPEEK_ENABLED_LANGUAGES`) |
 | `BGPEEK_ENABLED_LANGUAGES` | `en,ru` | Comma-separated allow-list of language codes. Languages outside the list are ignored even if requested via `?lang=`, cookie, or `Accept-Language`. Must include `BGPEEK_DEFAULT_LANG`. Set to a single code (for example `en`) to force one language |
+| `BGPEEK_ALLOWED_TARGET_TYPES` | `ip,cidr,hostname` | Comma-separated allow-list of query-target kinds: `ip` (bare address), `cidr` (prefix notation), `hostname` (DNS name — still gated by `BGPEEK_DNS_RESOLVE_ENABLED`). Targets classified outside the list are rejected with HTTP 400 before any DNS/SSH work. Narrow in prod (for example `ip,cidr`) to reduce attack surface |
 | `BGPEEK_LG_LINKS` | _(empty)_ | JSON array of external Looking Glass links, e.g. `[{"name": "Example LG", "url": "https://lg.example.com"}]` |
 | `BGPEEK_PEERINGDB_LINK_ENABLED` | `true` | Show/hide the PeeringDB icon in the top-right header. Requires `BGPEEK_PRIMARY_ASN` to be set — if the ASN is unset, the icon is hidden regardless of this flag |
 | `BGPEEK_CONFIG_DIR` | `/etc/bgpeek` | Base configuration directory |

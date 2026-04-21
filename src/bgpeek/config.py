@@ -34,6 +34,18 @@ class Settings(BaseSettings):
         description="Resolve hostnames to IPs before querying. When false, only IP addresses accepted.",
     )
 
+    # --- Target types ---
+    allowed_target_types: str = Field(
+        default="ip,cidr,hostname",
+        description=(
+            "Comma-separated allow-list of query-target types. "
+            "`ip` = bare IPv4/IPv6 address, `cidr` = prefix notation (e.g. 192.0.2.0/24), "
+            "`hostname` = DNS name (still subject to BGPEEK_DNS_RESOLVE_ENABLED). "
+            "Targets classified outside this list are rejected with 400 before any SSH "
+            "or DNS work. Use a narrower list in prod to reduce attack surface."
+        ),
+    )
+
     # --- Database ---
     database_url: str = Field(
         default="postgresql://bgpeek:bgpeek@localhost:5432/bgpeek",
@@ -341,6 +353,31 @@ class Settings(BaseSettings):
                 unique.append(tok)
         return ",".join(unique)
 
+    @field_validator("allowed_target_types")
+    @classmethod
+    def validate_allowed_target_types(cls: type["Settings"], value: str) -> str:
+        """Normalise and validate the target-type allow-list. Known kinds are hard-coded
+        (there are only three) — an unknown token is almost always a typo that would
+        silently shrink the allow-list, so we fail at startup instead.
+        """
+        known = {"ip", "cidr", "hostname"}
+        tokens = [t.strip().lower() for t in value.split(",") if t.strip()]
+        if not tokens:
+            raise ValueError("allowed_target_types must contain at least one kind")
+        unknown = [t for t in tokens if t not in known]
+        if unknown:
+            raise ValueError(
+                f"allowed_target_types contains unknown kind(s) {unknown}; "
+                f"known kinds: {sorted(known)}"
+            )
+        seen: set[str] = set()
+        unique: list[str] = []
+        for tok in tokens:
+            if tok not in seen:
+                seen.add(tok)
+                unique.append(tok)
+        return ",".join(unique)
+
     @model_validator(mode="after")
     def validate_default_lang_in_enabled(self) -> "Settings":
         """`default_lang` must be one of `enabled_languages` or the middleware has
@@ -359,6 +396,11 @@ class Settings(BaseSettings):
         """Parsed ``enabled_languages`` as an ordered tuple (validator has already
         normalised casing and deduped, so a plain split suffices)."""
         return tuple(t for t in self.enabled_languages.split(",") if t)
+
+    @property
+    def allowed_target_types_set(self) -> frozenset[str]:
+        """Parsed ``allowed_target_types`` as a frozenset for membership tests."""
+        return frozenset(t for t in self.allowed_target_types.split(",") if t)
 
 
 settings = Settings()
