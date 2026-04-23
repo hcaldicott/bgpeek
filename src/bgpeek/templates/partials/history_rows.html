@@ -41,7 +41,10 @@
                 {{ t.view }}
             </a>
             <button type="button"
-                    onclick="bgpeekCopyText(window.location.origin+'/result/{{ row.id }}').then(function(){var b=this;b.textContent='{{ t.copied }}';setTimeout(function(){b.textContent='{{ t.share }}'},1500)}.bind(this))"
+                    data-action="copy-permalink"
+                    data-share-url="/result/{{ row.id }}"
+                    data-copied-label="{{ t.copied }}"
+                    data-share-label="{{ t.share }}"
                     class="text-xs font-medium text-slate-500 dark:text-slate-400
                            hover:text-slate-900 dark:hover:text-white transition-colors">
                 {{ t.share }}
