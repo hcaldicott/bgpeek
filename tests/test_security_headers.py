@@ -8,6 +8,9 @@ index route queries it).
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
@@ -117,4 +120,53 @@ class TestUvicornServerHeaderDisabled:
         kwargs = fake_uvicorn.run.call_args.kwargs
         assert kwargs.get("server_header") is False, (
             f"server_header must be False in uvicorn.run(), got {kwargs.get('server_header')!r}"
+        )
+
+
+class TestNoInlineJavaScriptInTemplates:
+    """CSP ``script-src 'self'`` blocks inline ``<script>`` blocks and inline
+    event-handler attributes (``onclick=``, ``onsubmit=``, etc.). Both would
+    silently no-op in the browser — the site renders but interactivity dies.
+
+    This test scans the shipped Jinja templates so a future PR that adds back
+    an inline handler trips CI instead of shipping to prod.
+    """
+
+    TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "src" / "bgpeek" / "templates"
+
+    # <script> tags without a src= attribute
+    _INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
+    # on<event>= attribute on any tag
+    _INLINE_HANDLER = re.compile(r"\son[a-z]+\s*=", re.IGNORECASE)
+
+    def test_no_inline_script_tags(self) -> None:
+        offenders = []
+        for path in self.TEMPLATE_DIR.rglob("*.html"):
+            content = path.read_text(encoding="utf-8")
+            # Strip HTML and Jinja comments — they legitimately mention
+            # "<script>" in prose documentation.
+            content_wo_comments = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+            content_wo_comments = re.sub(r"{#.*?#}", "", content_wo_comments, flags=re.DOTALL)
+            if self._INLINE_SCRIPT.search(content_wo_comments):
+                offenders.append(path.relative_to(self.TEMPLATE_DIR))
+        assert not offenders, (
+            f"inline <script> blocks found (CSP script-src 'self' blocks them): "
+            f"{[str(p) for p in offenders]}. "
+            "Move JS to src/bgpeek/static/js/ and reference via <script src='...'>."
+        )
+
+    def test_no_inline_event_handlers(self) -> None:
+        offenders = []
+        for path in self.TEMPLATE_DIR.rglob("*.html"):
+            content = path.read_text(encoding="utf-8")
+            for match in self._INLINE_HANDLER.finditer(content):
+                # Exclude Jinja macros / other non-event-handler attributes that
+                # happen to start with `on` (e.g. ``once=``, ``only=``). The
+                # real offenders all look like `on<letters>=`.
+                start = max(0, match.start() - 20)
+                snippet = content[start : match.end() + 20]
+                offenders.append(f"{path.relative_to(self.TEMPLATE_DIR)}: {snippet.strip()}")
+        assert not offenders, (
+            f"inline event handlers found (CSP blocks them — use data-action + "
+            f"delegated listener in static/js/ui-handlers.js): {offenders}"
         )
