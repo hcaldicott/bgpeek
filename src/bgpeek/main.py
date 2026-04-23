@@ -289,6 +289,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 "BGPEEK_SESSION_SECRET is set to the default value — refusing to start. Set a strong secret."
             )
             raise SystemExit(1)
+        if not settings.cookie_secure:
+            log.warning(
+                "BGPEEK_COOKIE_SECURE=false in non-debug mode — the auth cookie will be sent over "
+                "plain HTTP and can be intercepted. Set BGPEEK_COOKIE_SECURE=true when behind TLS."
+            )
 
     if not settings.encryption_key:
         if settings.debug:
