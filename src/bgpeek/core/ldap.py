@@ -55,6 +55,13 @@ def _resolve_role(
 
 def _authenticate_sync(username: str, password: str) -> LdapUserInfo | None:
     """Blocking LDAP authenticate: search + rebind. Called via ``asyncio.to_thread``."""
+    # Many LDAP servers treat bind with an empty password as an unauthenticated
+    # bind and return success. Reject at the door rather than rely on the
+    # directory's own configuration.
+    if not password:
+        logger.info("ldap bind rejected: empty password", username=username)
+        return None
+
     use_ssl = settings.ldap_server.startswith("ldaps://")
 
     tls_obj = Tls() if (settings.ldap_use_tls or use_ssl) else None
