@@ -10,6 +10,25 @@ import bcrypt
 from bgpeek.models.user import User, UserCreate, UserCreateLocal, UserRole, UserUpdate
 
 
+class IdentityProviderConflictError(Exception):
+    """Raised when an external IdP upsert targets a username owned by another provider.
+
+    Guards against the scenario where a local or LDAP user named ``alice`` already
+    exists and an OIDC token (or vice versa) would otherwise silently overwrite
+    the row's ``role`` / ``email``. Callers translate this to a 409 (or a neutral
+    401 on interactive paths) rather than letting the overwrite happen.
+    """
+
+    def __init__(self, username: str, existing_provider: str, attempted_provider: str) -> None:
+        self.username = username
+        self.existing_provider = existing_provider
+        self.attempted_provider = attempted_provider
+        super().__init__(
+            f"username {username!r} is owned by provider {existing_provider!r}; "
+            f"refusing upsert as {attempted_provider!r}"
+        )
+
+
 def _hash_key(api_key: str) -> str:
     """SHA-256 hash of a raw API key for safe storage and lookup."""
     return hashlib.sha256(api_key.encode()).hexdigest()
@@ -123,7 +142,12 @@ async def upsert_ldap_user(
     email: str | None,
     role: UserRole,
 ) -> User:
-    """Create or update an LDAP-provisioned user. Updates email, role, and last_login_at on conflict."""
+    """Create or update an LDAP-provisioned user. Updates email, role, and last_login_at on conflict.
+
+    Raises ``IdentityProviderConflictError`` when the conflicting row belongs to a
+    different ``auth_provider`` — without that guard a local user ``alice``
+    could be silently mutated by an LDAP bind that returns ``role=admin``.
+    """
     row = await pool.fetchrow(
         """
         INSERT INTO users (username, email, role, auth_provider, enabled)
@@ -132,13 +156,19 @@ async def upsert_ldap_user(
             SET email = EXCLUDED.email,
                 role = EXCLUDED.role,
                 last_login_at = now()
+            WHERE users.auth_provider = 'ldap'
         RETURNING *
         """,
         username,
         email,
         role.value,
     )
-    assert row is not None
+    if row is None:
+        existing = await pool.fetchrow(
+            "SELECT auth_provider FROM users WHERE username = $1", username
+        )
+        existing_provider = existing["auth_provider"] if existing else "unknown"
+        raise IdentityProviderConflictError(username, existing_provider, "ldap")
     return User.model_validate(dict(row))
 
 
@@ -149,7 +179,11 @@ async def upsert_oidc_user(
     role: UserRole,
     oidc_sub: str,
 ) -> User:
-    """Create or update an OIDC-provisioned user. Updates email, role, and last_login_at on conflict."""
+    """Create or update an OIDC-provisioned user. Updates email, role, and last_login_at on conflict.
+
+    See :class:`IdentityProviderConflictError` — a username owned by a different
+    provider is rejected rather than silently overwritten.
+    """
     row = await pool.fetchrow(
         """
         INSERT INTO users (username, email, role, auth_provider, enabled)
@@ -158,13 +192,19 @@ async def upsert_oidc_user(
             SET email = EXCLUDED.email,
                 role = EXCLUDED.role,
                 last_login_at = now()
+            WHERE users.auth_provider = 'oidc'
         RETURNING *
         """,
         username,
         email,
         role.value,
     )
-    assert row is not None  # noqa: S101
+    if row is None:
+        existing = await pool.fetchrow(
+            "SELECT auth_provider FROM users WHERE username = $1", username
+        )
+        existing_provider = existing["auth_provider"] if existing else "unknown"
+        raise IdentityProviderConflictError(username, existing_provider, "oidc")
     return User.model_validate(dict(row))
 
 

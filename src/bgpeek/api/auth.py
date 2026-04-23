@@ -78,12 +78,34 @@ async def login_submit(
     if user is None:
         ldap_info = await authenticate_ldap(username, password)
         if ldap_info is not None:
-            user = await crud.upsert_ldap_user(
-                get_pool(),
-                username=ldap_info.username,
-                email=ldap_info.email,
-                role=ldap_info.role,
-            )
+            try:
+                user = await crud.upsert_ldap_user(
+                    get_pool(),
+                    username=ldap_info.username,
+                    email=ldap_info.email,
+                    role=ldap_info.role,
+                )
+            except crud.IdentityProviderConflictError as exc:
+                log.warning(
+                    "identity_provider_conflict",
+                    username=exc.username,
+                    existing_provider=exc.existing_provider,
+                    attempted_provider=exc.attempted_provider,
+                )
+                await log_audit(
+                    get_pool(),
+                    AuditEntryCreate(
+                        action=AuditAction.LOGIN,
+                        success=False,
+                        username=exc.username,
+                        error_message=(
+                            f"identity-provider conflict: username owned by "
+                            f"{exc.existing_provider}, rejected {exc.attempted_provider} bind"
+                        ),
+                        **request_ctx(request),
+                    ),
+                )
+                user = None
 
     if user is None:
         log.info("web login failed", username=username)
@@ -227,12 +249,37 @@ async def login(
     if user is None:
         ldap_info = await authenticate_ldap(body.username, body.password)
         if ldap_info is not None:
-            user = await crud.upsert_ldap_user(
-                get_pool(),
-                username=ldap_info.username,
-                email=ldap_info.email,
-                role=ldap_info.role,
-            )
+            try:
+                user = await crud.upsert_ldap_user(
+                    get_pool(),
+                    username=ldap_info.username,
+                    email=ldap_info.email,
+                    role=ldap_info.role,
+                )
+            except crud.IdentityProviderConflictError as exc:
+                log.warning(
+                    "identity_provider_conflict",
+                    username=exc.username,
+                    existing_provider=exc.existing_provider,
+                    attempted_provider=exc.attempted_provider,
+                )
+                await log_audit(
+                    get_pool(),
+                    AuditEntryCreate(
+                        action=AuditAction.LOGIN,
+                        success=False,
+                        username=exc.username,
+                        error_message=(
+                            f"identity-provider conflict: username owned by "
+                            f"{exc.existing_provider}, rejected {exc.attempted_provider} bind"
+                        ),
+                        **request_ctx(request),
+                    ),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="username already registered with a different authentication provider",
+                ) from exc
 
     if user is None:
         await log_audit(
@@ -343,13 +390,38 @@ async def oidc_callback(request: Request) -> Response:
     role = extract_role_from_token(dict(token_data))
 
     # Upsert user
-    user = await crud.upsert_oidc_user(
-        get_pool(),
-        username=username,
-        email=email,
-        role=role,
-        oidc_sub=oidc_sub,
-    )
+    try:
+        user = await crud.upsert_oidc_user(
+            get_pool(),
+            username=username,
+            email=email,
+            role=role,
+            oidc_sub=oidc_sub,
+        )
+    except crud.IdentityProviderConflictError as exc:
+        log.warning(
+            "identity_provider_conflict",
+            username=exc.username,
+            existing_provider=exc.existing_provider,
+            attempted_provider=exc.attempted_provider,
+        )
+        await log_audit(
+            get_pool(),
+            AuditEntryCreate(
+                action=AuditAction.LOGIN,
+                success=False,
+                username=exc.username,
+                error_message=(
+                    f"identity-provider conflict: username owned by "
+                    f"{exc.existing_provider}, rejected {exc.attempted_provider} bind"
+                ),
+                **request_ctx(request),
+            ),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="authentication failed — contact your administrator",
+        ) from exc
 
     log.info("oidc login success", username=username, role=role.value)
 
