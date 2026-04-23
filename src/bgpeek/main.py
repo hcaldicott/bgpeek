@@ -213,6 +213,30 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+_CSP_POLICY = (
+    # Default: same-origin only. Anything not overridden below inherits this.
+    "default-src 'self'; "
+    # `unsafe-inline` for styles is required because (a) `base.html` embeds a
+    # `<style>` block for htmx-indicator + community-label CSS vars, and
+    # (b) `brand.custom_css` is rendered `| safe` inside a `<style>` block so
+    # operators can brand the LG. Tightening this would break the UI.
+    "style-src 'self' 'unsafe-inline'; "
+    # Scripts: same-origin only. We deliberately do NOT allow `unsafe-inline`
+    # or `unsafe-eval` — HTMX drives interactivity via `hx-*` attributes, not
+    # inline JS, so nothing we ship needs a relaxation here.
+    "script-src 'self'; "
+    # Images: same-origin plus data: URIs (base64 favicons in branded deploys).
+    "img-src 'self' data:; "
+    # HTMX posts back to same-origin only; no external fetches from the app.
+    "connect-src 'self'; "
+    # Clickjacking defence. Duplicates `X-Frame-Options: DENY` for clients
+    # that support the CSP version but not the legacy header.
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add standard security headers to all responses."""
 
@@ -222,8 +246,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Skip CSP on the Swagger UI path — FastAPI's bundled UI loads its JS
+        # and CSS from a CDN, which our strict `script-src 'self'` would block.
+        # The docs surface is an operator-facing tool already gated by
+        # `BGPEEK_DOCS_ENABLED`; dropping CSP there is a much smaller exposure
+        # than serving a broken docs page to operators who turned them on.
+        if not request.url.path.startswith("/api/docs"):
+            response.headers["Content-Security-Policy"] = _CSP_POLICY
         if settings.cookie_secure:  # implies HTTPS
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Strip the `server: uvicorn` fingerprint. An attacker who sees it can
+        # narrow down the version range and match it against CVE trackers; the
+        # header conveys nothing useful to legitimate clients. Starlette's
+        # MutableHeaders has no `pop`, so delete via `del` with a guard.
+        if "server" in response.headers:
+            del response.headers["server"]
         return response
 
 
