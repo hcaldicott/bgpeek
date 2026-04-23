@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **H6 — Webhook delivery pinned to pre-validated address.** `validate_webhook_delivery_target` resolved the hostname and checked the result, but httpx then re-resolved when it issued the POST; under a low-TTL DNS rebind the two lookups could diverge and the request would land on `127.0.0.1`, `169.254.169.254`, or an internal service. `resolve_and_pin_webhook_target` now resolves once, validates every returned address, and returns a pinned IP-literal URL. The delivery path sends to the IP, passes `Host: <original>` so virtual-hosted receivers still route correctly, and forwards `sni_hostname` via httpx request extensions so TLS cert verification keeps matching the hostname.
 - **H7 — Secret redactor in shared structlog chain.** A stray `log.info(..., password=x)` or an asyncpg/netmiko traceback carrying credential arguments would reach the remote log shipper verbatim. A substring-keyed redactor replaces the value (not the key) of any field whose name contains `password`, `passwd`, `api_key`, `apikey`, `secret`, `token`, `authorization`, `auth_header`, `encryption_key`, `bind_password`, `client_secret`, `jwt_secret`, `session_secret`, or `cookie` with `***`.
 - **`/auth/logout` now revokes the JWT server-side.** Each token carries a random `jti` claim; logout decodes the cookie, extracts `jti` + `exp`, and writes `bgpeek:jwt_revoked:<jti>` to Redis with a TTL equal to the remaining lifetime. The auth resolver rejects tokens whose `jti` is on the blocklist with `401 token has been revoked`. Redis-unavailable falls open (same graceful-degradation stance as rate-limiter / circuit-breaker); expired or tampered cookies during logout are a no-op.
-- **CSRF protection via [`fastapi-csrf-protect`](https://pypi.org/project/fastapi-csrf-protect/).** See Breaking for the enforcement scope. Defence against an attacker who lures an authenticated operator to a hostile page that POSTs to `/admin/devices/{id}/delete` (and similar) — the missing signed-cookie pair now yields HTTP 400.
+- **CSRF protection via [`fastapi-csrf-protect`](https://pypi.org/project/fastapi-csrf-protect/)** (thanks @hcaldicott, #19). See Breaking for the enforcement scope. Defence against an attacker who lures an authenticated operator to a hostile page that POSTs to `/admin/devices/{id}/delete` (and similar) — the missing signed-cookie pair now yields HTTP 400.
 - **M1 — Server-side API-key generation.** See Deprecated. Enforces the show-once pattern and prevents two deployments from sharing the SHA-256 of a reused key.
 - **M4 — Webhook SSRF blocklist widened.** `http://0/` resolves to `0.0.0.0` → delivered to `127.0.0.1` on Linux; `http://[::]/` behaves the same on IPv6. `0.0.0.0/8`, `::/128`, `224.0.0.0/4`, `240.0.0.0/4`, and `ff00::/8` added to `_BLOCKED_NETWORKS`.
 - **L11 — Startup warning on `BGPEEK_COOKIE_SECURE=false` in non-debug.** Previously silent; operators behind TLS who forgot to flip the flag would ship insecure session cookies without any signal. Sits alongside the existing JWT/SESSION secret checks.
@@ -36,8 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Account settings page (`/account/settings`)** for authenticated users to self-manage email and password. Local-auth users only; OIDC/LDAP accounts see a read-only view with a provider note.
-- **Branded API documentation page (`/api/docs`)** with the app's dark-mode styling, replacing the default Swagger UI layout. Gated on `BGPEEK_DOCS_ENABLED` (404 when disabled).
+- **Account settings page (`/account/settings`)** for authenticated users to self-manage email and password (thanks @hcaldicott, #19). Local-auth users only; OIDC/LDAP accounts see a read-only view with a provider note.
+- **Branded API documentation page (`/api/docs`)** with the app's dark-mode styling, replacing the default Swagger UI layout (thanks @hcaldicott, #19). Gated on `BGPEEK_DOCS_ENABLED` (404 when disabled).
 - **`BGPEEK_ENABLED_LANGUAGES`** (default `en,ru`) — operator-level allow-list of UI language codes. Languages outside the list are ignored even if requested via `?lang=`, the `bgpeek_lang` cookie, or `Accept-Language`. `BGPEEK_DEFAULT_LANG` must be a member of the allow-list; a mismatch fails validation at startup. Also exposed as a Jinja global (`enabled_languages`) so a future language switcher can auto-hide when the list has length 1. Translation files remain in the repo regardless — operators toggle visibility via env, not file deletion.
 - **`BGPEEK_ALLOWED_TARGET_TYPES`** (default `ip,cidr,hostname`) — operator-level allow-list of accepted query-target kinds. Targets whose syntactic kind (classified in `core/dns.classify_target`) is not in the list are rejected with HTTP 400 before any DNS lookup or SSH work. Lets prod deployments drop `hostname` (to refuse DNS-name queries where a spoofed answer could send `ping`/`trace` to the wrong place) or `cidr` (to disallow prefix notation) without touching code.
 - **`BGPEEK_DOCS_ENABLED`** (default `true`) — single toggle that governs both the Swagger/OpenAPI endpoints and the `API` link in the main-site header. Previously the docs were gated behind `BGPEEK_DEBUG=true`; this splits the concerns.
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Unknown` health state** — admin devices list. A new slate-bullet state shown until the first success is recorded, so newly-added unreachable devices are visibly distinguishable from devices that are actually working.
 - **Health-badge error tooltip** — devices list. The concrete `error_message` from the most recent failed query or probe is surfaced as a `title=` tooltip on the badge. Operators hover to read `ssh connect timeout` without cracking open the server logs; recovered devices are excluded.
 - **Loading state on admin Save buttons** — disable + swap label to `Saving…` / `Сохраняем…` on submit. Opt-in via `data-loading-text` attribute so inline `Delete` buttons keep their `confirm()` flow. Applied to all five admin form types.
-- **Consistent centralised page navigation** via shared `partials/header.html` / `partials/user_menu.html`; fewer inline duplicates across index / history / result / admin / docs.
+- **Consistent centralised page navigation** via shared `partials/header.html` / `partials/user_menu.html`; fewer inline duplicates across index / history / result / admin / docs (thanks @hcaldicott, #19).
 - **Webhook delivery from the admin panel.** SSR admin CRUD on devices previously skipped webhook events; now parity with the REST path.
 - **`.github/ISSUE_TEMPLATE/config.yml`** — disables blank issues and redirects security reports to the private advisory workflow.
 
@@ -79,8 +79,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- Template chrome refactor and user-context hardening in shared template wiring (`TemplateUserMiddleware` attaches best-effort `request.state.user` for all SSR pages).
+- Template chrome refactor and user-context hardening in shared template wiring (`TemplateUserMiddleware` attaches best-effort `request.state.user` for all SSR pages) — @hcaldicott (#19).
 - Test coverage expanded across auth, admin UI, DB users, templates, and links — account settings, link generation, CSRF enforcement, identity-provider collision, API-key generation path, result-retrieval gating, and the security-header contract.
+- Nine inline `<script>` blocks and fifteen inline event handlers moved to `src/bgpeek/static/js/*.js` so the page-wide CSP can enforce `script-src 'self'` without an `'unsafe-inline'` carve-out. A new `tests/test_security_headers.py::TestNoInlineJavaScriptInTemplates` regression test scans rendered templates to prevent re-introduction.
+
+### Credits
+
+- Harrison Caldicott ([@hcaldicott](https://github.com/hcaldicott)) — CSRF protection, account settings page, branded API docs template, and the shared header/user-menu partials refactor (#19).
 
 ## [1.3.1] - 2026-04-19
 
