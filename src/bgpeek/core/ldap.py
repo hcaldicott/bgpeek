@@ -68,6 +68,9 @@ def _authenticate_sync(username: str, password: str) -> LdapUserInfo | None:
     server = Server(settings.ldap_server, use_ssl=use_ssl, tls=tls_obj, get_info=None)
 
     # --- Service-account bind (search) ---
+    # StartTLS must complete BEFORE any bind() call. Otherwise the bind DN and
+    # password cross the TCP socket in plaintext even though the operator set
+    # ldap_use_tls=true — only later traffic would be encrypted.
     svc_conn = Connection(
         server,
         user=settings.ldap_bind_dn,
@@ -75,10 +78,10 @@ def _authenticate_sync(username: str, password: str) -> LdapUserInfo | None:
         auto_bind=False,
         raise_exceptions=True,
     )
-    svc_conn.bind()
-
     if settings.ldap_use_tls and not use_ssl:
+        svc_conn.open()
         svc_conn.start_tls()
+    svc_conn.bind()
 
     # --- Search for user entry ---
     safe_username = escape_filter_chars(username)
@@ -100,6 +103,7 @@ def _authenticate_sync(username: str, password: str) -> LdapUserInfo | None:
     svc_conn.unbind()
 
     # --- User bind (authentication) ---
+    # Same TLS-before-bind ordering as the service bind above.
     user_conn = Connection(
         server,
         user=user_dn,
@@ -107,6 +111,9 @@ def _authenticate_sync(username: str, password: str) -> LdapUserInfo | None:
         auto_bind=False,
         raise_exceptions=True,
     )
+    if settings.ldap_use_tls and not use_ssl:
+        user_conn.open()
+        user_conn.start_tls()
     try:
         user_conn.bind()
     except LDAPBindError:
