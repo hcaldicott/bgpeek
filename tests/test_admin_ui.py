@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1265,7 +1265,10 @@ def test_users_create_local_short_password_rerenders() -> None:
 
 
 def test_users_create_api_key_shows_key_page() -> None:
-    create_mock = AsyncMock()
+    # CRUD now returns (user, plaintext_key); mock has to surface that shape.
+    fake_user = MagicMock()
+    fake_user.username = "bot-user"
+    create_mock = AsyncMock(return_value=(fake_user, "generated-plaintext-key"))
     with (
         patch(
             "bgpeek.core.auth.user_crud.get_user_by_api_key",
@@ -1295,7 +1298,8 @@ def test_users_create_api_key_shows_key_page() -> None:
     create_mock.assert_awaited_once()
     payload = create_mock.await_args.args[1]
     assert payload.username == "bot-user"
-    assert payload.api_key  # a key was generated
+    # UI path asks the server to generate (api_key=None).
+    assert payload.api_key is None
 
 
 def test_users_create_invalid_role_rerenders() -> None:

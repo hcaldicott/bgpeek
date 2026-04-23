@@ -29,6 +29,7 @@ from bgpeek.models.user import (
     User,
     UserAdmin,
     UserCreate,
+    UserCreated,
     UserCreateLocal,
     UserPublic,
     UserRole,
@@ -444,15 +445,21 @@ async def oidc_callback(request: Request) -> Response:
 _admin = require_role(UserRole.ADMIN)
 
 
-@router.post("/api/users", response_model=UserAdmin, status_code=status.HTTP_201_CREATED)
+@router.post("/api/users", response_model=UserCreated, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreate,
     request: Request,
     caller: User = Depends(_admin),  # noqa: B008
-) -> User:
-    """Create a new API-key user (admin only)."""
+) -> UserCreated:
+    """Create a new API-key user (admin only).
+
+    Returns the plaintext API key in the 201 response — it is not recoverable
+    afterwards. Callers should omit ``api_key`` from the request body and let
+    the server generate a strong value; supplying the field remains supported
+    for one more release cycle but is deprecated (removal in v1.5.0).
+    """
     try:
-        created = await crud.create_user(get_pool(), payload)
+        created, plaintext_key = await crud.create_user(get_pool(), payload)
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -468,7 +475,9 @@ async def create_user(
             error_message=f"target_username={created.username}, auth=api_key",
         ),
     )
-    return created
+    return UserCreated.model_validate(
+        {**UserAdmin.model_validate(created, from_attributes=True).model_dump(), "api_key": plaintext_key}
+    )
 
 
 @router.post("/api/users/local", response_model=UserAdmin, status_code=status.HTTP_201_CREATED)

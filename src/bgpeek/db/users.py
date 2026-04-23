@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 
 import asyncpg
 import bcrypt
+import structlog
 
 from bgpeek.models.user import User, UserCreate, UserCreateLocal, UserRole, UserUpdate
+
+log = structlog.get_logger(__name__)
 
 
 class IdentityProviderConflictError(Exception):
@@ -44,8 +48,31 @@ def _verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
-async def create_user(pool: asyncpg.Pool, payload: UserCreate) -> User:
-    """Insert a new API-key user. Raises `asyncpg.UniqueViolationError` on duplicate username."""
+async def create_user(pool: asyncpg.Pool, payload: UserCreate) -> tuple[User, str]:
+    """Insert a new API-key user and return ``(user, plaintext_api_key)``.
+
+    When ``payload.api_key`` is ``None`` the server generates a 256-bit URL-safe
+    token, hashes it for storage and returns the plaintext for the caller to
+    show once. Client-supplied keys are still honoured for backward
+    compatibility with admin automation that mints keys from a secrets manager,
+    but emit a deprecation warning — this path is slated for removal in v1.5.0.
+
+    Raises ``asyncpg.UniqueViolationError`` on duplicate username.
+    """
+    if payload.api_key is None:
+        plaintext_key = secrets.token_urlsafe(32)
+    else:
+        plaintext_key = payload.api_key
+        log.warning(
+            "deprecated_client_supplied_api_key",
+            username=payload.username,
+            message=(
+                "client-supplied api_key accepted for backward compatibility; "
+                "prefer omitting the field and reading the server-generated key "
+                "from the 201 response. This path will be removed in v1.5.0."
+            ),
+        )
+
     row = await pool.fetchrow(
         """
         INSERT INTO users (username, email, role, auth_provider, api_key_hash, enabled)
@@ -55,11 +82,11 @@ async def create_user(pool: asyncpg.Pool, payload: UserCreate) -> User:
         payload.username,
         payload.email,
         payload.role.value,
-        _hash_key(payload.api_key),
+        _hash_key(plaintext_key),
         payload.enabled,
     )
     assert row is not None
-    return User.model_validate(dict(row))
+    return User.model_validate(dict(row)), plaintext_key
 
 
 async def get_user_by_id(pool: asyncpg.Pool, user_id: int) -> User | None:

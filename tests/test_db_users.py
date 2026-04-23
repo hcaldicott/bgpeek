@@ -26,7 +26,7 @@ async def test_list_users_empty(pool: asyncpg.Pool) -> None:
 
 
 async def test_create_and_get_by_id(pool: asyncpg.Pool) -> None:
-    created = await crud.create_user(pool, _payload())
+    created, _key = await crud.create_user(pool, _payload())
     assert created.id > 0
     assert created.username == "alice"
     assert created.role == UserRole.NOC
@@ -36,6 +36,17 @@ async def test_create_and_get_by_id(pool: asyncpg.Pool) -> None:
     fetched = await crud.get_user_by_id(pool, created.id)
     assert fetched is not None
     assert fetched.id == created.id
+
+
+async def test_create_generates_api_key_when_none(pool: asyncpg.Pool) -> None:
+    """Omitted api_key → server generates a strong URL-safe token, returned once."""
+    _created, plaintext = await crud.create_user(pool, _payload("autogen", api_key=None))
+    assert isinstance(plaintext, str)
+    assert len(plaintext) >= 32
+    # The generated key authenticates.
+    fetched = await crud.get_user_by_api_key(pool, plaintext)
+    assert fetched is not None
+    assert fetched.username == "autogen"
 
 
 async def test_get_by_api_key(pool: asyncpg.Pool) -> None:
@@ -75,7 +86,7 @@ async def test_create_duplicate_username_raises(pool: asyncpg.Pool) -> None:
 
 
 async def test_update_partial(pool: asyncpg.Pool) -> None:
-    created = await crud.create_user(pool, _payload())
+    created, _key = await crud.create_user(pool, _payload())
     updated = await crud.update_user(
         pool, created.id, UserUpdate(email="new@example.com", enabled=False)
     )
@@ -86,7 +97,7 @@ async def test_update_partial(pool: asyncpg.Pool) -> None:
 
 
 async def test_update_empty_payload_returns_unchanged(pool: asyncpg.Pool) -> None:
-    created = await crud.create_user(pool, _payload())
+    created, _key = await crud.create_user(pool, _payload())
     unchanged = await crud.update_user(pool, created.id, UserUpdate())
     assert unchanged is not None
     assert unchanged.id == created.id
@@ -98,7 +109,7 @@ async def test_update_missing_returns_none(pool: asyncpg.Pool) -> None:
 
 
 async def test_delete(pool: asyncpg.Pool) -> None:
-    created = await crud.create_user(pool, _payload())
+    created, _key = await crud.create_user(pool, _payload())
     assert await crud.delete_user(pool, created.id) is True
     assert await crud.get_user_by_id(pool, created.id) is None
 

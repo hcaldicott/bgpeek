@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
 from ipaddress import IPv4Address, IPv6Address, ip_address
 
 import asyncpg
@@ -753,14 +752,15 @@ async def users_create(
     role_enum = UserRole(role)
 
     if auth_type == "api_key":
-        api_key = secrets.token_urlsafe(32)
         try:
             payload_ak = UserCreate(
                 username=username,
                 email=email or None,
                 role=role_enum,
                 enabled=enabled == "1",
-                api_key=api_key,
+                # ``api_key=None`` asks the CRUD layer to generate a strong
+                # server-side token and return the plaintext.
+                api_key=None,
             )
         except ValidationError as exc:
             return await _render_user_form(
@@ -773,7 +773,7 @@ async def users_create(
                 status_code=400,
             )
         try:
-            await user_crud.create_user(get_pool(), payload_ak)
+            _created, api_key = await user_crud.create_user(get_pool(), payload_ak)
         except asyncpg.UniqueViolationError:
             return await _render_user_form(
                 request,

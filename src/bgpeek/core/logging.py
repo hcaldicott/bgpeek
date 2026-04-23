@@ -72,9 +72,11 @@ def _redact_secrets(
     """
     for key in list(event_dict.keys()):
         lowered = key.lower()
-        if any(sub in lowered for sub in _SECRET_KEY_SUBSTRINGS):
-            if event_dict[key] not in (None, ""):
-                event_dict[key] = _REDACTED
+        if any(sub in lowered for sub in _SECRET_KEY_SUBSTRINGS) and event_dict[key] not in (
+            None,
+            "",
+        ):
+            event_dict[key] = _REDACTED
     return event_dict
 
 

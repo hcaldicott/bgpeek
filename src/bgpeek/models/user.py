@@ -29,11 +29,18 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    """Payload for creating a new API-key user."""
+    """Payload for creating a new API-key user.
+
+    ``api_key`` is optional: when omitted the server generates a cryptographically
+    strong value and returns it once in the 201 response (show-once pattern).
+    Client-supplied keys are still accepted for backward compatibility but will
+    be rejected in v1.5.0 — migrate any automation to let the server generate
+    and read the ``api_key`` field from the response.
+    """
 
     # `api_key` is a shared secret — keep exactly what the caller sent, even
     # if it has incidental whitespace. Length constraint already blocks "   ".
-    api_key: str = Field(min_length=32, max_length=128)
+    api_key: str | None = Field(default=None, min_length=32, max_length=128)
 
 
 class UserUpdate(BaseModel):
@@ -106,6 +113,16 @@ class UserAdmin(BaseModel):
     enabled: bool
     created_at: datetime
     last_login_at: datetime | None = None
+
+
+class UserCreated(UserAdmin):
+    """201 response for ``POST /api/users`` — carries the one-shot API key.
+
+    ``api_key`` is the plaintext token. It is returned exactly once; subsequent
+    reads of the user never expose it again (only the SHA-256 hash is stored).
+    """
+
+    api_key: str
 
 
 class LoginResponse(BaseModel):
