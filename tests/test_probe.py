@@ -118,6 +118,69 @@ async def test_probe_device_records_failure_on_ssh_error(
     assert row["error_message"] == "boom"
 
 
+async def test_probe_failure_records_circuit_breaker(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed probe must bump the circuit-breaker count so the admin-list badge
+    reflects the failure (not just the audit_log row) — parity with how a failed
+    query already feeds the breaker.
+    """
+    device = await device_crud.create_device(
+        pool,
+        DeviceCreate(
+            name="rt-cb-fail",
+            address=IPv4Address("10.0.0.1"),
+            platform="juniper_junos",
+        ),
+    )
+
+    monkeypatch.setattr(probe, "_resolve_auth", lambda cred: (None, "fake", "noc"))
+    monkeypatch.setattr(
+        probe, "SSHClient", _make_ssh_stub(connect_ok=False, error=SSHConnectionError("timeout"))
+    )
+    monkeypatch.setattr(probe, "get_pool", lambda: pool)
+
+    record_failure_spy = AsyncMock()
+    record_success_spy = AsyncMock()
+    monkeypatch.setattr(probe, "record_failure", record_failure_spy)
+    monkeypatch.setattr(probe, "record_success", record_success_spy)
+
+    await probe.probe_device(device.id)
+
+    record_failure_spy.assert_awaited_once_with("rt-cb-fail")
+    record_success_spy.assert_not_awaited()
+
+
+async def test_probe_success_clears_circuit_breaker(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful probe must clear the breaker (same as a successful query) so
+    a device that recovered doesn't keep looking partial-failed in the admin list.
+    """
+    device = await device_crud.create_device(
+        pool,
+        DeviceCreate(
+            name="rt-cb-ok",
+            address=IPv4Address("10.0.0.1"),
+            platform="juniper_junos",
+        ),
+    )
+
+    monkeypatch.setattr(probe, "_resolve_auth", lambda cred: (None, "fake", "noc"))
+    monkeypatch.setattr(probe, "SSHClient", _make_ssh_stub(connect_ok=True))
+    monkeypatch.setattr(probe, "get_pool", lambda: pool)
+
+    record_failure_spy = AsyncMock()
+    record_success_spy = AsyncMock()
+    monkeypatch.setattr(probe, "record_failure", record_failure_spy)
+    monkeypatch.setattr(probe, "record_success", record_success_spy)
+
+    await probe.probe_device(device.id)
+
+    record_success_spy.assert_awaited_once_with("rt-cb-ok")
+    record_failure_spy.assert_not_awaited()
+
+
 async def test_probe_device_skips_when_no_credentials(
     pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
 ) -> None:

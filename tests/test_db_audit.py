@@ -334,6 +334,63 @@ async def test_log_audit_suppresses_stdout_when_toggle_off(
     assert "audit" not in buf.getvalue()
 
 
+async def test_recent_device_failures_empty_when_no_audit(pool: asyncpg.Pool) -> None:
+    assert await crud.recent_device_failures(pool) == {}
+
+
+async def test_recent_device_failures_returns_latest_failure(pool: asyncpg.Pool) -> None:
+    d = await _make_device(pool, "rt-x")
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, error_message)"
+        " VALUES ('probe', FALSE, $1, 'ssh connect timeout')",
+        d,
+    )
+    out = await crud.recent_device_failures(pool)
+    assert out[d][0] == "ssh connect timeout"
+
+
+async def test_recent_device_failures_skips_recovered_devices(pool: asyncpg.Pool) -> None:
+    """If a device failed then succeeded (most recent event is success), the
+    helper must NOT include it — otherwise the badge would keep lighting up red
+    for a device that already recovered."""
+    d = await _make_device(pool, "rt-recovered")
+    # Older failure → newer success, ordered by explicit timestamps to make
+    # the DISTINCT ON ordering deterministic.
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, error_message, timestamp)"
+        " VALUES ('query', FALSE, $1, 'old timeout', now() - interval '60 seconds')",
+        d,
+    )
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, timestamp)"
+        " VALUES ('query', TRUE, $1, now() - interval '10 seconds')",
+        d,
+    )
+    out = await crud.recent_device_failures(pool)
+    assert d not in out
+
+
+async def test_recent_device_failures_honours_window(pool: asyncpg.Pool) -> None:
+    """Failures older than `since_seconds` are ignored."""
+    d = await _make_device(pool, "rt-old")
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, error_message, timestamp)"
+        " VALUES ('probe', FALSE, $1, 'ancient', now() - interval '1 hour')",
+        d,
+    )
+    out = await crud.recent_device_failures(pool, since_seconds=300)
+    assert d not in out
+
+
+async def test_recent_device_failures_skips_non_device_actions(pool: asyncpg.Pool) -> None:
+    # Login failures shouldn't pollute per-device error tooltips.
+    await crud.log_audit(
+        pool,
+        _entry(action=AuditAction.LOGIN, device_id=None, success=False, error_message="bad pw"),
+    )
+    assert await crud.recent_device_failures(pool) == {}
+
+
 async def test_devices_with_success_history_counts_probes(pool: asyncpg.Pool) -> None:
     # Probe events are written by the async reachability probe on device save.
     # Using raw SQL here because AuditAction.PROBE is introduced in the same

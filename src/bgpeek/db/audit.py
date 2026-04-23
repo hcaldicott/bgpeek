@@ -179,6 +179,42 @@ async def devices_with_success_history(pool: asyncpg.Pool) -> set[int]:
     return {int(r["device_id"]) for r in rows}
 
 
+async def recent_device_failures(
+    pool: asyncpg.Pool, since_seconds: int = 300
+) -> dict[int, tuple[str, datetime]]:
+    """Return the most-recent failed query/probe per device within the last
+    ``since_seconds`` seconds, only if no *later* successful session exists
+    for that device (so we don't light up red for a device that already
+    recovered).
+
+    Shape: ``{device_id: (error_message, timestamp)}``. Used by the admin
+    devices-list badge to show the concrete SSH error (e.g. "ssh connect
+    timeout") as a tooltip next to the health indicator, so an operator
+    doesn't have to cross-reference the server logs to understand why a
+    device flipped off green.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT ON (device_id)
+            device_id,
+            success,
+            error_message,
+            timestamp
+        FROM audit_log
+        WHERE device_id IS NOT NULL
+          AND action IN ('query', 'probe')
+          AND timestamp >= now() - make_interval(secs => $1)
+        ORDER BY device_id, timestamp DESC
+        """,
+        since_seconds,
+    )
+    return {
+        int(r["device_id"]): (r["error_message"] or "", r["timestamp"])
+        for r in rows
+        if r["success"] is False and r["error_message"]
+    }
+
+
 async def cleanup_old_entries(pool: asyncpg.Pool, ttl_days: int) -> int:
     """Delete audit entries older than ``ttl_days``. Returns deleted row count."""
     result: str = await pool.execute(

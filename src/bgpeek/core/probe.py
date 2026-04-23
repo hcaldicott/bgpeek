@@ -24,6 +24,7 @@ from pathlib import Path
 import structlog
 
 from bgpeek.config import settings
+from bgpeek.core.circuit_breaker import record_failure, record_success
 from bgpeek.core.ssh import SSHClient, SSHError
 from bgpeek.db import devices as device_crud
 from bgpeek.db.audit import log_audit
@@ -75,6 +76,14 @@ async def probe_device(device_id: int) -> None:
 
     runtime_ms = int((time.monotonic() - started) * 1000)
     await _record(device, success=success, error=error, runtime_ms=runtime_ms)
+    # Feed the circuit breaker so the admin-list badge reflects a probe failure
+    # the same way it already reflects a query failure. Without this, a device
+    # with any prior successful session kept showing "Healthy" even right after
+    # a visible ssh-connect-timeout in the logs (reported 2026-04-20).
+    if success:
+        await record_success(device.name)
+    else:
+        await record_failure(device.name)
 
 
 def schedule_probe(device_id: int) -> None:

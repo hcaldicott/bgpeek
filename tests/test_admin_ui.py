@@ -270,6 +270,10 @@ def test_devices_list_renders() -> None:
             "bgpeek.ui.admin.audit_crud.devices_with_success_history",
             new=AsyncMock(return_value=set()),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -280,6 +284,56 @@ def test_devices_list_renders() -> None:
     assert "juniper_junos" in response.text
     assert "/admin/devices/new" in response.text
     assert "/admin/devices/1/edit" in response.text
+
+
+def test_devices_list_shows_recent_failure_error_as_tooltip() -> None:
+    """When `recent_device_failures` has a row for a device, the badge's
+    `title=` attribute surfaces the concrete error message so operators can
+    see `ssh connect timeout` on hover without cracking open the server logs.
+    """
+    from datetime import UTC, datetime
+
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    recent = {device.id: ("ssh connect timeout", datetime.now(UTC))}
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "bgpeek.ui.admin.cb_failure_counts",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.device_query_stats",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value={device.id}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value=recent),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'title="ssh connect timeout"' in response.text
 
 
 def test_devices_list_renders_circuit_breaker_status() -> None:
@@ -313,6 +367,10 @@ def test_devices_list_renders_circuit_breaker_status() -> None:
         patch(
             "bgpeek.ui.admin.audit_crud.devices_with_success_history",
             new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
         ),
     ):
         client = TestClient(app)
@@ -353,6 +411,10 @@ def test_devices_list_renders_circuit_breaker_open() -> None:
         patch(
             "bgpeek.ui.admin.audit_crud.devices_with_success_history",
             new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
         ),
     ):
         client = TestClient(app)
@@ -396,6 +458,10 @@ def test_devices_list_renders_query_usage() -> None:
             "bgpeek.ui.admin.audit_crud.devices_with_success_history",
             new=AsyncMock(return_value=set()),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -436,6 +502,10 @@ def test_devices_list_renders_never_queried() -> None:
             "bgpeek.ui.admin.audit_crud.devices_with_success_history",
             new=AsyncMock(return_value=set()),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -474,6 +544,10 @@ def test_devices_list_has_query_link() -> None:
         patch(
             "bgpeek.ui.admin.audit_crud.devices_with_success_history",
             new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
         ),
     ):
         client = TestClient(app)

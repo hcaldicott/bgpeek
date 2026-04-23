@@ -150,6 +150,7 @@ async def devices_list(
     failures = await cb_failure_counts([d.name for d in devices])
     query_stats = await audit_crud.device_query_stats(pool, since_days=7)
     success_history = await audit_crud.devices_with_success_history(pool)
+    recent_failures = await audit_crud.recent_device_failures(pool, since_seconds=300)
     return templates.TemplateResponse(
         request=request,
         name="admin/devices_list.html",
@@ -163,6 +164,7 @@ async def devices_list(
             "cb_threshold": settings.circuit_breaker_threshold,
             "query_stats": query_stats,
             "success_history": success_history,
+            "recent_failures": recent_failures,
         },
     )
 
