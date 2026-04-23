@@ -56,46 +56,4 @@
         </div>
     </div>
 </details>
-<script>
-(function () {
-  "use strict";
-
-  var details = document.querySelector("details[data-user-menu]");
-  if (!details) return;
-  var panel = details.querySelector("[data-user-menu-panel]");
-  if (!panel) return;
-
-  function clampMenuToViewport() {
-    panel.style.transform = "";
-    var rect = panel.getBoundingClientRect();
-    var gutter = 8;
-    var shift = 0;
-
-    if (rect.right > window.innerWidth - gutter) {
-      shift = (window.innerWidth - gutter) - rect.right;
-    }
-    if (rect.left + shift < gutter) {
-      shift += gutter - (rect.left + shift);
-    }
-    if (shift !== 0) {
-      panel.style.transform = "translateX(" + shift + "px)";
-    }
-  }
-
-  function resetMenuClamp() {
-    panel.style.transform = "";
-  }
-
-  details.addEventListener("toggle", function () {
-    if (details.open) {
-      clampMenuToViewport();
-    } else {
-      resetMenuClamp();
-    }
-  });
-
-  window.addEventListener("resize", function () {
-    if (details.open) clampMenuToViewport();
-  });
-})();
-</script>
+<script src="/static/js/user-menu.js" defer></script>
