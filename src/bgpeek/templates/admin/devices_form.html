@@ -18,6 +18,7 @@
 {% endif %}
 
 <form method="post" action="{{ form_action }}" class="space-y-4 max-w-2xl">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% set field_class = "mt-1 block w-full rounded-md border border-slate-300 dark:border-slate-600
                           bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100
                           px-3 py-2 text-sm
@@ -94,6 +95,10 @@
                    placeholder="2001:db8::1"
                    class="{{ field_class }} font-mono">
         </label>
+        <p id="junos-source-warning" hidden
+           class="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded px-3 py-2">
+            {{ t.admin_devices_junos_source_warning }}
+        </p>
     </fieldset>
 
     <label class="block">
@@ -116,6 +121,7 @@
 
     <div class="flex items-center gap-3 pt-4">
         <button type="submit"
+                data-loading-text="{{ t.admin_saving }}"
                 class="rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900
                        px-4 py-2 text-sm font-medium
                        hover:bg-slate-800 dark:hover:bg-white transition-colors">
@@ -137,7 +143,9 @@
     <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">{{ t.admin_devices_test_ssh_hint }}</p>
     <div class="flex items-center gap-3">
         <button type="button" id="test-ssh-btn"
-                onclick="bgpeekTestSSH({{ form.credential_id }}, {{ device_id }})"
+                data-cred-id="{{ form.credential_id }}"
+                data-device-id="{{ device_id }}"
+                data-running-label="{{ t.admin_devices_test_ssh_running }}"
                 class="rounded-md border border-slate-300 dark:border-slate-600
                        bg-white dark:bg-slate-700
                        text-slate-700 dark:text-slate-200
@@ -149,47 +157,12 @@
         <span id="test-ssh-result" class="text-sm"></span>
     </div>
 </div>
-
-<script>
-(function () {
-    "use strict";
-    window.bgpeekTestSSH = async function (credId, deviceId) {
-        var btn = document.getElementById("test-ssh-btn");
-        var out = document.getElementById("test-ssh-result");
-        btn.disabled = true;
-        out.textContent = "{{ t.admin_devices_test_ssh_running }}";
-        out.className = "text-sm text-slate-500 dark:text-slate-400";
-        try {
-            var resp = await fetch(
-                "/api/credentials/" + credId + "/test?device_id=" + deviceId,
-                { method: "POST", headers: { "Accept": "application/json" } }
-            );
-            if (!resp.ok) {
-                out.textContent = "✗ HTTP " + resp.status;
-                out.className = "text-sm text-rose-600 dark:text-rose-400";
-                return;
-            }
-            var data = await resp.json();
-            if (data.success) {
-                out.textContent = "✓ " + data.message;
-                out.className = "text-sm text-emerald-600 dark:text-emerald-400";
-            } else {
-                out.textContent = "✗ " + data.message;
-                out.className = "text-sm text-rose-600 dark:text-rose-400";
-            }
-        } catch (err) {
-            out.textContent = "✗ " + err;
-            out.className = "text-sm text-rose-600 dark:text-rose-400";
-        } finally {
-            btn.disabled = false;
-        }
-    };
-})();
-</script>
 {% elif device_id and not form.credential_id %}
 <div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 max-w-2xl">
     <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">{{ t.admin_devices_test_ssh }}</h2>
     <p class="text-xs text-slate-500 dark:text-slate-400">{{ t.admin_devices_test_ssh_no_credential }}</p>
 </div>
 {% endif %}
+
+<script src="/static/js/admin-devices-form.js" defer></script>
 {% endblock %}

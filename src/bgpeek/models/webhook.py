@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from bgpeek.models._common import TrimmedOptStr, TrimmedStr
+
 
 class WebhookEvent(StrEnum):
     """Events that can trigger a webhook."""
@@ -27,22 +29,30 @@ class WebhookBase(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(max_length=255)
-    url: str = Field(max_length=2048)
+    # `min_length=1` was missing — without it a whitespace-only name stripped
+    # down to `""` would still have been accepted. Adding explicitly guards the
+    # invariant we want the form to enforce.
+    name: TrimmedStr = Field(min_length=1, max_length=255)
+    url: TrimmedStr = Field(min_length=1, max_length=2048)
     events: list[WebhookEvent] = Field(min_length=1)
     enabled: bool = True
 
 
 _BLOCKED_NETWORKS = [
+    ip_network("0.0.0.0/8"),  # "this network" — Linux delivers 0.0.0.0 to 127.0.0.1
     ip_network("10.0.0.0/8"),
     ip_network("172.16.0.0/12"),
     ip_network("192.168.0.0/16"),
     ip_network("127.0.0.0/8"),
     ip_network("169.254.0.0/16"),  # link-local / cloud metadata
     ip_network("100.64.0.0/10"),  # CGNAT
+    ip_network("224.0.0.0/4"),  # multicast
+    ip_network("240.0.0.0/4"),  # reserved / future-use, incl. 255.255.255.255
+    ip_network("::/128"),  # IPv6 unspecified — ``http://[::]/`` routes to ::1 on Linux
     ip_network("::1/128"),
     ip_network("fc00::/7"),
     ip_network("fe80::/10"),
+    ip_network("ff00::/8"),  # IPv6 multicast
 ]
 
 
@@ -95,9 +105,58 @@ def validate_webhook_delivery_target(url: str) -> None:
     _validate_webhook_target(url, allow_unresolved_hostname=False)
 
 
+def resolve_and_pin_webhook_target(url: str) -> tuple[str, str]:
+    """Resolve the URL's hostname once, validate every address, pin to the first.
+
+    Returns ``(pinned_url, original_host)`` where ``pinned_url`` has the
+    hostname replaced with an IP literal. The caller sends ``Host: <original>``
+    so the webhook receiver still sees the expected virtual host, and
+    (for HTTPS) supplies ``sni_hostname=original`` via httpx request
+    ``extensions`` so certificate verification continues to match the CN/SAN.
+
+    Closes the DNS-rebind TOCTOU — httpx's own DNS lookup would otherwise
+    race with our validator under a low-TTL rebind, and the request could
+    land on 127.0.0.1 / 169.254.169.254 / an internal service.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("webhook URL must use http or https")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("webhook URL must have a hostname")
+
+    # Literal-IP hostnames were already validated at model-create time.
+    try:
+        ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        _check_blocked(hostname)
+        return url, hostname
+
+    try:
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"webhook URL hostname could not be resolved ({hostname})") from exc
+
+    # Validate every returned address; if ANY is blocked, refuse — don't let
+    # the attacker's resolver return a mix of public + private and get us to
+    # pick the public one.
+    for info in resolved:
+        _check_blocked(str(info[4][0]))
+
+    pinned_ip = str(resolved[0][4][0])
+    netloc = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    pinned = parsed._replace(netloc=netloc).geturl()
+    return pinned, hostname
+
+
 class WebhookCreate(WebhookBase):
     """Payload for creating a new webhook."""
 
+    # `secret` is signing material — never stripped (see CredentialBase.password).
     secret: str | None = Field(default=None, max_length=255)
 
     @field_validator("url")
@@ -112,8 +171,8 @@ class WebhookUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, max_length=255)
-    url: str | None = Field(default=None, max_length=2048)
+    name: TrimmedOptStr = Field(default=None, min_length=1, max_length=255)
+    url: TrimmedOptStr = Field(default=None, min_length=1, max_length=2048)
     events: list[WebhookEvent] | None = Field(default=None, min_length=1)
     enabled: bool | None = None
     secret: str | None = Field(default=None, max_length=255)

@@ -12,9 +12,10 @@ from itertools import groupby
 from operator import attrgetter
 
 import structlog
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi_csrf_protect import CsrfProtect
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -27,16 +28,24 @@ from bgpeek.api import query as query_api
 from bgpeek.api import webhooks as webhooks_api
 from bgpeek.config import settings
 from bgpeek.core.auth import guest_user, optional_auth
-from bgpeek.core.i18n import SUPPORTED_LANGS, detect_language, get_translations
+from bgpeek.core.csrf import issue_csrf_token, set_csrf_cookie
+from bgpeek.core.i18n import detect_language, get_translations
+from bgpeek.core.log_shipper import install_shipper, shutdown_shipper
+from bgpeek.core.logging import configure_logging
 from bgpeek.core.oidc import setup_oidc
+from bgpeek.core.probe import shutdown as shutdown_probes
 from bgpeek.core.redis import close_redis, get_redis, init_redis
 from bgpeek.core.templates import templates
 from bgpeek.core.webhooks import shutdown as shutdown_webhooks
 from bgpeek.db import devices as device_crud
 from bgpeek.db.pool import close_pool, get_pool, init_pool
 from bgpeek.db.results import list_results
+from bgpeek.models.query import StoredResult
 from bgpeek.models.user import User, UserRole
 from bgpeek.ui import admin as admin_ui
+
+# Configure structlog renderer (console/json/logfmt) before the first bound logger.
+configure_logging()
 
 log = structlog.get_logger()
 
@@ -161,15 +170,24 @@ class I18nMiddleware(BaseHTTPMiddleware):
         query_lang = request.query_params.get("lang")
         cookie_lang = request.cookies.get(_LANG_COOKIE)
         accept_lang = request.headers.get("accept-language")
+        enabled_langs = settings.enabled_languages_list
 
-        lang = detect_language(query_lang, cookie_lang, accept_lang, settings.default_lang)
+        lang = detect_language(
+            query_lang,
+            cookie_lang,
+            accept_lang,
+            settings.default_lang,
+            enabled=enabled_langs,
+        )
         request.state.lang = lang
         request.state.t = get_translations(lang)
 
         response = await call_next(request)
 
         # Persist language choice in cookie when explicitly set via query param.
-        if query_lang and query_lang in SUPPORTED_LANGS:
+        # Gate on the operator allow-list too — a disabled language that slipped
+        # into the URL should not be written back as a cookie.
+        if query_lang and query_lang in enabled_langs:
             response.set_cookie(
                 key=_LANG_COOKIE,
                 value=query_lang,
@@ -198,6 +216,46 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+_CSP_POLICY = (
+    # Default: same-origin only. Anything not overridden below inherits this.
+    "default-src 'self'; "
+    # `unsafe-inline` for styles is required because (a) `base.html` embeds a
+    # `<style>` block for htmx-indicator + community-label CSS vars, and
+    # (b) `brand.custom_css` is rendered `| safe` inside a `<style>` block so
+    # operators can brand the LG. Tightening this would break the UI.
+    "style-src 'self' 'unsafe-inline'; "
+    # Scripts: same-origin only. We deliberately do NOT allow `unsafe-inline`
+    # or `unsafe-eval` — HTMX drives interactivity via `hx-*` attributes, not
+    # inline JS, so nothing we ship needs a relaxation here.
+    "script-src 'self'; "
+    # Images: same-origin plus data: URIs (base64 favicons in branded deploys).
+    "img-src 'self' data:; "
+    # HTMX posts back to same-origin only; no external fetches from the app.
+    "connect-src 'self'; "
+    # Clickjacking defence. Duplicates `X-Frame-Options: DENY` for clients
+    # that support the CSP version but not the legacy header.
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+class TemplateUserMiddleware(BaseHTTPMiddleware):
+    """Attach best-effort authenticated user to request state for templates."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        try:
+            request.state.user = await optional_auth(
+                x_api_key=request.headers.get("X-API-Key"),
+                authorization=request.headers.get("Authorization"),
+                bgpeek_token=request.cookies.get("bgpeek_token"),
+            )
+        except HTTPException:
+            # Invalid/expired credentials should not break template rendering.
+            request.state.user = None
+        return await call_next(request)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add standard security headers to all responses."""
 
@@ -207,8 +265,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Skip CSP on the Swagger UI path — FastAPI's bundled UI loads its JS
+        # and CSS from a CDN, which our strict `script-src 'self'` would block.
+        # The docs surface is an operator-facing tool already gated by
+        # `BGPEEK_DOCS_ENABLED`; dropping CSP there is a much smaller exposure
+        # than serving a broken docs page to operators who turned them on.
+        if not request.url.path.startswith("/api/docs"):
+            response.headers["Content-Security-Policy"] = _CSP_POLICY
         if settings.cookie_secure:  # implies HTTPS
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Strip the `server: uvicorn` fingerprint. An attacker who sees it can
+        # narrow down the version range and match it against CVE trackers; the
+        # header conveys nothing useful to legitimate clients. Starlette's
+        # MutableHeaders has no `pop`, so delete via `del` with a guard.
+        if "server" in response.headers:
+            del response.headers["server"]
         return response
 
 
@@ -237,6 +308,32 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 "BGPEEK_SESSION_SECRET is set to the default value — refusing to start. Set a strong secret."
             )
             raise SystemExit(1)
+        if not settings.cookie_secure:
+            log.warning(
+                "BGPEEK_COOKIE_SECURE=false in non-debug mode — the auth cookie will be sent over "
+                "plain HTTP and can be intercepted. Set BGPEEK_COOKIE_SECURE=true when behind TLS."
+            )
+
+    if not settings.encryption_key:
+        if settings.debug:
+            log.warning(
+                "BGPEEK_ENCRYPTION_KEY not set — stored credentials will be saved in plaintext. "
+                "Acceptable in debug only; set BGPEEK_ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())') for any real deployment."
+            )
+        else:
+            log.critical(
+                "BGPEEK_ENCRYPTION_KEY is required in non-debug mode — refusing to start. "
+                "Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            )
+            raise SystemExit(1)
+    else:
+        from cryptography.fernet import Fernet
+
+        try:
+            Fernet(settings.encryption_key.encode())
+        except Exception as exc:
+            log.critical("invalid BGPEEK_ENCRYPTION_KEY format", error=str(exc))
+            raise SystemExit(1) from exc
 
     await init_pool(
         settings.database_url,
@@ -274,6 +371,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     except Exception:
         log.warning("redis unavailable — cache disabled", exc_info=True)
 
+    # Start HTTP log shipper (no-op unless BGPEEK_LOG_SHIP_URL is set).
+    try:
+        await install_shipper()
+    except Exception:
+        log.warning("log_shipper_startup_failed", exc_info=True)
+
     # Start periodic cleanup
     _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
@@ -286,6 +389,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await _cleanup_task
 
     await shutdown_webhooks()
+    await shutdown_probes()
+    await shutdown_shipper()
     await close_redis()
     await close_pool()
     log.info("bgpeek shutting down")
@@ -300,14 +405,18 @@ app = FastAPI(
     description=settings.brand_site_description,
     version=__version__,
     lifespan=lifespan,
-    docs_url="/api/docs" if settings.debug else None,
+    # The built-in Swagger UI is replaced by a branded `/api/docs` handler
+    # below that renders the same OpenAPI spec inside the app shell. The route
+    # is still gated behind `settings.docs_enabled` at the handler level.
+    docs_url=None,
     redoc_url=None,
-    openapi_url="/api/openapi.json" if settings.debug else None,
+    openapi_url="/api/openapi.json" if settings.docs_enabled else None,
 )
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(I18nMiddleware)
+app.add_middleware(TemplateUserMiddleware)
 
 # OIDC must be set up before routes are registered (needs SessionMiddleware).
 setup_oidc(app)
@@ -370,11 +479,29 @@ async def health(deep: bool = False) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
+def _template_response_with_csrf(
+    request: Request,
+    *,
+    name: str,
+    context: dict[str, object],
+    csrf_protect: CsrfProtect,
+) -> Response:
+    csrf_token, signed_token = issue_csrf_token(csrf_protect)
+    response = templates.TemplateResponse(
+        request=request,
+        name=name,
+        context={**context, "csrf_token": csrf_token},
+    )
+    set_csrf_cookie(csrf_protect, response, signed_token)
+    return response
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(
     request: Request,
     location: str | None = None,
     user: User | None = Depends(optional_auth),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),  # noqa: B008
 ) -> Response:
     """Main looking glass form — loads devices from DB for the dropdown."""
     if user is None:
@@ -402,8 +529,8 @@ async def index(
     # enabled/visible device.
     preselect_device = location if location and any(d.name == location for d in devices) else None
 
-    return templates.TemplateResponse(
-        request=request,
+    return _template_response_with_csrf(
+        request,
         name="index.html",
         context={
             "version": __version__,
@@ -415,6 +542,7 @@ async def index(
             "lg_links": _lg_links,
             "preselect_device": preselect_device,
         },
+        csrf_protect=csrf_protect,
     )
 
 
@@ -427,23 +555,32 @@ async def history(
     offset: int = 0,
     partial: int = 0,
     user: User | None = Depends(optional_auth),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),  # noqa: B008
 ) -> Response:
-    """Query history page with offset-based pagination."""
+    """Query history page with offset-based pagination.
+
+    Guest / anonymous callers never see global history. `list_results(user_id=None)`
+    is an admin-oversight code path; calling it from this public handler would
+    return the most recent results across all users. The public handler therefore
+    renders an empty list for anyone without a real user row.
+    """
     if user is None:
         if settings.access_mode == "closed":
             return RedirectResponse(url="/auth/login", status_code=303)
         if settings.access_mode == "guest":
             user = guest_user()
-    user_id = user.id if user and user.id != 0 else None
-    try:
-        results = await list_results(
-            get_pool(),
-            user_id=user_id,
-            limit=_HISTORY_PAGE_SIZE + 1,
-            offset=max(offset, 0),
-        )
-    except RuntimeError:
-        results = []
+    if user is None or user.id == 0:
+        results: list[StoredResult] = []
+    else:
+        try:
+            results = await list_results(
+                get_pool(),
+                user_id=user.id,
+                limit=_HISTORY_PAGE_SIZE + 1,
+                offset=max(offset, 0),
+            )
+        except RuntimeError:
+            results = []
 
     has_more = len(results) > _HISTORY_PAGE_SIZE
     if has_more:
@@ -465,10 +602,43 @@ async def history(
             name="partials/history_rows.html",
             context=ctx,
         )
-    return templates.TemplateResponse(
-        request=request,
+    return _template_response_with_csrf(
+        request,
         name="history.html",
         context=ctx,
+        csrf_protect=csrf_protect,
+    )
+
+
+@app.get("/api/docs", response_class=HTMLResponse, include_in_schema=False)
+async def api_docs_page(
+    request: Request,
+    user: User | None = Depends(optional_auth),  # noqa: B008
+    csrf_protect: CsrfProtect = Depends(),  # noqa: B008
+) -> Response:
+    """Render API docs inside the branded application shell.
+
+    Gated on ``BGPEEK_DOCS_ENABLED`` — operators who explicitly disabled docs
+    must get a 404 so neither the branded shell nor the upstream spec leak.
+    """
+    if not settings.docs_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    if user is None:
+        if settings.access_mode == "closed":
+            return RedirectResponse(url="/auth/login", status_code=303)
+        if settings.access_mode == "guest":
+            user = guest_user()
+
+    return _template_response_with_csrf(
+        request,
+        name="api_docs.html",
+        context={
+            "user": user,
+            "t": request.state.t,
+            "lang": request.state.lang,
+            "openapi_url": app.openapi_url,
+        },
+        csrf_protect=csrf_protect,
     )
 
 
@@ -482,6 +652,15 @@ def run() -> None:
         port=settings.port,
         workers=settings.workers,
         log_config=None,
+        # `server: uvicorn` is injected by uvicorn's HTTP protocol layer AFTER
+        # ASGI middleware runs, so the strip in `SecurityHeadersMiddleware`
+        # can't reach it at runtime (TestClient bypasses the protocol layer,
+        # which is why the middleware test passes but the real response still
+        # advertises uvicorn — reported 2026-04-23). Disabling here stops the
+        # header from being written in the first place. The middleware strip
+        # stays as belt-and-suspenders for alt transports (gunicorn wrapper,
+        # reverse proxies that re-inject).
+        server_header=False,
     )
 
 

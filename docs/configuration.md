@@ -201,7 +201,7 @@ Pass `?deep=true` for a full connectivity check (PostgreSQL + Redis):
 ```json
 {
   "status": "ok",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "database": "ok",
   "redis": "ok"
 }
@@ -237,7 +237,10 @@ BGPEEK_BRAND_PAGE_TITLES='{"index":"AS152183 Home","login":"sign in","history":"
 
 | Variable | Default | Description |
 |---|---|---|
-| `BGPEEK_DEFAULT_LANG` | `en` | Default UI language (`en` or `ru`) |
+| `BGPEEK_DEFAULT_LANG` | `en` | Default UI language (must be listed in `BGPEEK_ENABLED_LANGUAGES`) |
+| `BGPEEK_ENABLED_LANGUAGES` | `en,ru` | Comma-separated allow-list of language codes. Languages outside the list are ignored even if requested via `?lang=`, cookie, or `Accept-Language`. Must include `BGPEEK_DEFAULT_LANG`. Set to a single code (for example `en`) to force one language |
+| `BGPEEK_ALLOWED_TARGET_TYPES` | `ip,cidr,hostname` | Comma-separated allow-list of query-target kinds: `ip` (bare address), `cidr` (prefix notation), `hostname` (DNS name — still gated by `BGPEEK_DNS_RESOLVE_ENABLED`). Targets classified outside the list are rejected with HTTP 400 before any DNS/SSH work. Narrow in prod (for example `ip,cidr`) to reduce attack surface |
+| `BGPEEK_DOCS_ENABLED` | `true` | Serve Swagger UI at `/api/docs`, the OpenAPI schema at `/api/openapi.json`, and render the `API` link in the header. Set to `false` to return 404 on both endpoints AND hide the header link — the two toggle together so a prod user never sees a dead link, and a visible endpoint stays findable for scanners. For internal/restricted deployments that also put bgpeek behind nginx, pair this with a 404 rule at the reverse proxy for defense-in-depth |
 | `BGPEEK_LG_LINKS` | _(empty)_ | JSON array of external Looking Glass links, e.g. `[{"name": "Example LG", "url": "https://lg.example.com"}]` |
 | `BGPEEK_PEERINGDB_LINK_ENABLED` | `true` | Show/hide the PeeringDB icon in the top-right header. Requires `BGPEEK_PRIMARY_ASN` to be set — if the ASN is unset, the icon is hidden regardless of this flag |
 | `BGPEEK_CONFIG_DIR` | `/etc/bgpeek` | Base configuration directory |
@@ -245,3 +248,19 @@ BGPEEK_BRAND_PAGE_TITLES='{"index":"AS152183 Home","login":"sign in","history":"
 | `BGPEEK_TEMPLATES_DIR` | _(built-in)_ | Path to Jinja2 templates (override for custom UI) |
 | `BGPEEK_RESULT_TTL_DAYS` | `7` | How long shared query results are kept (days) |
 | `BGPEEK_AUDIT_TTL_DAYS` | `90` | Audit log retention in days; `0` keeps records forever |
+| `BGPEEK_AUDIT_STDOUT` | `true` | Also emit audit entries to the structlog stream (for Loki/VictoriaLogs/Elastic ingestion). PostgreSQL row is unaffected. |
+
+## Logging
+
+| Variable | Default | Description |
+|---|---|---|
+| `BGPEEK_SERVICE_NAME` | `bgpeek` | Value used for the `service=<name>` label on every log event. Distinct per instance when multiple bgpeeks ship into one log backend; pick names like `bgpeek-fra` / `bgpeek-edge` to partition VictoriaLogs / Loki streams cleanly. |
+| `BGPEEK_LOG_LEVEL` | `info` | Minimum log level: `debug`, `info`, `warning`, `error`, `critical` |
+| `BGPEEK_LOG_FORMAT` | `console` | Renderer: `console` (human, colourless plain text), `json` (NDJSON, one event per line), `logfmt` (`key=value` pairs) |
+| `BGPEEK_LOG_SHIP_URL` | _(empty)_ | Optional HTTP endpoint that receives batched copies of every structlog event. Empty disables shipping; `stdout` remains the always-live sink regardless |
+| `BGPEEK_LOG_SHIP_FORMAT` | `ndjson` | Wire format: `ndjson` (one JSON per line), `loki` (Loki push schema), `elasticsearch` (bulk NDJSON) |
+| `BGPEEK_LOG_SHIP_HEADERS` | _(empty)_ | JSON object of extra HTTP headers, e.g. `{"Authorization":"Bearer …"}` |
+| `BGPEEK_LOG_SHIP_BATCH_SIZE` | `100` | Events per POST |
+| `BGPEEK_LOG_SHIP_BATCH_TIMEOUT_SEC` | `2.0` | Maximum seconds an event waits in the queue before being flushed |
+| `BGPEEK_LOG_SHIP_QUEUE_MAX` | `10000` | In-memory queue cap; oldest events drop first on overflow (never blocks log calls) |
+| `BGPEEK_LOG_SHIP_TIMEOUT_SEC` | `5.0` | HTTP timeout for one shipping POST |

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "site_name": "bgpeek",
@@ -31,6 +33,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "guest": "Guest",
         "continue_as_guest": "Continue as guest",
         "account_settings": "Account settings",
+        "account_profile": "Profile",
+        "account_email_label": "Email address",
+        "account_email_hint": "Used for account contact and identity.",
+        "account_save_email": "Save email",
+        "account_password_section": "Password",
+        "account_current_password": "Current password",
+        "account_new_password": "New password",
+        "account_confirm_password": "Confirm new password",
+        "account_password_hint": "Minimum 8 characters.",
+        "account_save_password": "Change password",
+        "account_password_unavailable": "Password is managed by your authentication provider.",
+        "account_email_updated": "Email address updated.",
+        "account_password_updated": "Password updated.",
+        "account_email_invalid": "Please provide a valid email address (max 255 characters).",
+        "account_password_invalid_current": "Current password is incorrect.",
+        "account_password_mismatch": "New password and confirmation do not match.",
+        "account_password_too_short": "New password must be at least 8 characters.",
+        "account_password_too_long": "New password must be at most 128 characters.",
         "sign_in": "Sign in",
         "username": "Username",
         "password": "Password",
@@ -135,6 +155,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_devices_source6": "IPv6",
         "admin_devices_source_addresses": "Source addresses (optional)",
         "admin_devices_source_hint": "Override the source address used when the router sends outbound pings/traces. Leave blank to let the router pick.",
+        "admin_devices_junos_source_warning": "Most Junos looking-glass setups need an explicit source IP. Without one, ping/trace may leave via an internal interface and get dropped by uRPF at the upstream. You can still save — this is a warning, not a block.",
+        "admin_saving": "Saving…",
         "admin_devices_status": "Status",
         "admin_devices_enabled": "Enabled",
         "admin_devices_disabled": "Disabled",
@@ -151,6 +173,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_devices_query_title": "Open the looking glass with this device preselected",
         "admin_devices_health": "Health",
         "admin_devices_health_healthy": "Healthy",
+        "admin_devices_health_unknown": "Unknown",
+        "admin_devices_health_unknown_hint": "No successful session recorded yet. Status will update after the first successful query or probe.",
         "admin_devices_health_open": "Open (blocked)",
         "admin_devices_health_recent_failures": "recent SSH failures",
         "admin_devices_usage_7d": "Usage (7d)",
@@ -284,6 +308,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "n_selected": "выбрано",
         "resolved_to": "разрешено в",
         "other_looking_glasses": "Другие Looking Glass",
+        "admin_devices_health_unknown": "Неизвестно",
+        "admin_devices_health_unknown_hint": "Ещё не было успешных сессий с устройством. Статус обновится после первого успешного запроса или пробы.",
+        "admin_devices_junos_source_warning": "Большинству Junos-устройств в looking-glass режиме нужен явный source IP. Без него ping/trace может уйти через служебный интерфейс и отфильтроваться uRPF на аплинке. Сохранить всё равно можно — это предупреждение, не блокировка.",
+        "admin_saving": "Сохраняем…",
     },
 }
 
@@ -305,6 +333,7 @@ def detect_language(
     cookie: str | None,
     accept_language: str | None,
     default: str,
+    enabled: Collection[str] | None = None,
 ) -> str:
     """Detect language from request context, in priority order.
 
@@ -312,9 +341,16 @@ def detect_language(
     2. ``bgpeek_lang`` cookie
     3. ``Accept-Language`` header (first supported match)
     4. Application default
+
+    ``enabled`` is an optional allow-list (operator-configured). Codes outside
+    the allow-list are ignored at every level, so an operator can serve a
+    single language even to clients sending ``Accept-Language: ru``. Defaults
+    to :data:`SUPPORTED_LANGS` for backward compatibility.
     """
+    allowed = frozenset(enabled) if enabled else SUPPORTED_LANGS
+
     for candidate in (query_param, cookie):
-        if candidate and candidate in SUPPORTED_LANGS:
+        if candidate and candidate in allowed:
             return candidate
 
     if accept_language:
@@ -322,7 +358,11 @@ def detect_language(
             tag = part.split(";")[0].strip().lower()
             # Accept both "ru" and "ru-RU" style tags.
             short = tag[:2]
-            if short in SUPPORTED_LANGS:
+            if short in allowed:
                 return short
 
-    return default if default in SUPPORTED_LANGS else DEFAULT_LANG
+    if default in allowed:
+        return default
+    # Config validation should prevent this, but stay defensive for unit-test
+    # callers that pass a default outside ``enabled``.
+    return DEFAULT_LANG if DEFAULT_LANG in allowed else next(iter(sorted(allowed)))

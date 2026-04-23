@@ -5,10 +5,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import asyncpg
+import pytest
 
 from bgpeek.core.ldap import LdapUserInfo, authenticate_ldap
 from bgpeek.db import users as crud
-from bgpeek.models.user import UserRole
+from bgpeek.models.user import UserCreateLocal, UserRole
 
 # ---------------------------------------------------------------------------
 # authenticate_ldap — unit tests (mock ldap3, no real server)
@@ -219,3 +220,32 @@ async def test_upsert_ldap_user_updates_existing(pool: asyncpg.Pool) -> None:
     assert second.email == "new@example.com"
     assert second.role == UserRole.NOC
     assert second.last_login_at is not None
+
+
+async def test_upsert_ldap_user_rejects_cross_provider_collision(pool: asyncpg.Pool) -> None:
+    """A local user's row must not be mutated by an LDAP upsert of the same username."""
+    # Seed a local-provider user with role=PUBLIC.
+    local = await crud.create_local_user(
+        pool,
+        UserCreateLocal(
+            username="alice",
+            email="alice@local",
+            password="local-pw-12345",  # noqa: S106
+            role=UserRole.PUBLIC,
+        ),
+    )
+    assert local.auth_provider == "local"
+    assert local.role == UserRole.PUBLIC
+
+    # An LDAP bind returning role=ADMIN would previously silently promote alice.
+    with pytest.raises(crud.IdentityProviderConflictError) as excinfo:
+        await crud.upsert_ldap_user(pool, "alice", "alice@ldap", UserRole.ADMIN)
+    assert excinfo.value.username == "alice"
+    assert excinfo.value.existing_provider == "local"
+    assert excinfo.value.attempted_provider == "ldap"
+
+    # The local row is untouched.
+    reloaded = await crud.get_user_by_username(pool, "alice")
+    assert reloaded is not None
+    assert reloaded.auth_provider == "local"
+    assert reloaded.role == UserRole.PUBLIC

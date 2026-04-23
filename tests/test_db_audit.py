@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import json
+import logging
+from contextlib import redirect_stdout
 from ipaddress import IPv4Address, IPv6Address
 
 import asyncpg
+import pytest
+import structlog
 
+from bgpeek.config import settings
+from bgpeek.core.logging import configure_logging
 from bgpeek.db import audit as crud
+from bgpeek.db import devices as device_crud
 from bgpeek.models.audit import AuditAction, AuditEntryCreate
+from bgpeek.models.device import DeviceCreate
 
 
 def _entry(**overrides: object) -> AuditEntryCreate:
@@ -214,3 +224,186 @@ async def test_action_enum_string_value(pool: asyncpg.Pool) -> None:
     await crud.log_audit(pool, _entry(action=AuditAction.QUERY))
     raw = await pool.fetchval("SELECT action FROM audit_log LIMIT 1")
     assert raw == "query"
+
+
+@pytest.fixture(autouse=True)
+def _restore_structlog_level() -> None:
+    """Keep `configure_logging()` calls here from leaking into other test modules."""
+    yield
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(logging.NOTSET),
+    )
+
+
+async def _make_device(pool: asyncpg.Pool, name: str) -> int:
+    dev = await device_crud.create_device(
+        pool,
+        DeviceCreate(
+            name=name,
+            address=IPv4Address("10.0.0.1"),
+            platform="juniper_junos",
+        ),
+    )
+    return dev.id
+
+
+async def test_devices_with_success_history_empty(pool: asyncpg.Pool) -> None:
+    assert await crud.devices_with_success_history(pool) == set()
+
+
+async def test_devices_with_success_history_collects_successful_queries(
+    pool: asyncpg.Pool,
+) -> None:
+    d1 = await _make_device(pool, "rt1")
+    d2 = await _make_device(pool, "rt2")
+    await crud.log_audit(pool, _entry(device_id=d1, success=True))
+    await crud.log_audit(pool, _entry(device_id=d2, success=True))
+    await crud.log_audit(pool, _entry(device_id=d1, success=True))  # duplicate
+    assert await crud.devices_with_success_history(pool) == {d1, d2}
+
+
+async def test_devices_with_success_history_skips_failures(pool: asyncpg.Pool) -> None:
+    d1 = await _make_device(pool, "rt1")
+    d2 = await _make_device(pool, "rt2")
+    await crud.log_audit(pool, _entry(device_id=d1, success=False))
+    await crud.log_audit(pool, _entry(device_id=d2, success=True))
+    assert await crud.devices_with_success_history(pool) == {d2}
+
+
+async def test_devices_with_success_history_skips_non_device_actions(
+    pool: asyncpg.Pool,
+) -> None:
+    # Login events carry no device_id; they must not influence the set.
+    d1 = await _make_device(pool, "rt1")
+    await crud.log_audit(pool, _entry(action=AuditAction.LOGIN, device_id=None, success=True))
+    await crud.log_audit(pool, _entry(device_id=d1, success=True))
+    assert await crud.devices_with_success_history(pool) == {d1}
+
+
+async def test_log_audit_mirrors_to_stdout_when_enabled(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When audit_stdout is on, log_audit emits an `audit` event alongside the PG insert."""
+    monkeypatch.setattr(settings, "log_format", "json")
+    monkeypatch.setattr(settings, "log_level", "info")
+    monkeypatch.setattr(settings, "audit_stdout", True)
+    configure_logging()
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        await crud.log_audit(
+            pool,
+            _entry(
+                action=AuditAction.QUERY,
+                success=True,
+                username="alice",
+                device_name="rt1",
+                query_type="bgp_route",
+                query_target="1.1.1.1/32",
+                runtime_ms=42,
+            ),
+        )
+
+    lines = [line for line in buf.getvalue().splitlines() if line.strip()]
+    assert lines, "expected at least one structlog line on stdout"
+    payload = json.loads(lines[-1])
+    assert payload["event"] == "audit"
+    assert payload["action"] == "query"
+    assert payload["success"] is True
+    assert payload["username"] == "alice"
+    assert payload["device"] == "rt1"
+    assert payload["query_type"] == "bgp_route"
+    assert payload["target"] == "1.1.1.1/32"
+    assert payload["runtime_ms"] == 42
+
+
+async def test_log_audit_suppresses_stdout_when_toggle_off(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With audit_stdout=False, no `audit` event lands on stdout; the PG row still lands."""
+    monkeypatch.setattr(settings, "log_format", "json")
+    monkeypatch.setattr(settings, "log_level", "info")
+    monkeypatch.setattr(settings, "audit_stdout", False)
+    configure_logging()
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        persisted = await crud.log_audit(pool, _entry(action=AuditAction.QUERY, success=True))
+
+    assert persisted.id > 0  # DB insert still happened
+    assert "audit" not in buf.getvalue()
+
+
+async def test_recent_device_failures_empty_when_no_audit(pool: asyncpg.Pool) -> None:
+    assert await crud.recent_device_failures(pool) == {}
+
+
+async def test_recent_device_failures_returns_latest_failure(pool: asyncpg.Pool) -> None:
+    d = await _make_device(pool, "rt-x")
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, error_message)"
+        " VALUES ('probe', FALSE, $1, 'ssh connect timeout')",
+        d,
+    )
+    out = await crud.recent_device_failures(pool)
+    assert out[d][0] == "ssh connect timeout"
+
+
+async def test_recent_device_failures_skips_recovered_devices(pool: asyncpg.Pool) -> None:
+    """If a device failed then succeeded (most recent event is success), the
+    helper must NOT include it — otherwise the badge would keep lighting up red
+    for a device that already recovered."""
+    d = await _make_device(pool, "rt-recovered")
+    # Older failure → newer success, ordered by explicit timestamps to make
+    # the DISTINCT ON ordering deterministic.
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, error_message, timestamp)"
+        " VALUES ('query', FALSE, $1, 'old timeout', now() - interval '60 seconds')",
+        d,
+    )
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, timestamp)"
+        " VALUES ('query', TRUE, $1, now() - interval '10 seconds')",
+        d,
+    )
+    out = await crud.recent_device_failures(pool)
+    assert d not in out
+
+
+async def test_recent_device_failures_honours_window(pool: asyncpg.Pool) -> None:
+    """Failures older than `since_seconds` are ignored."""
+    d = await _make_device(pool, "rt-old")
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id, error_message, timestamp)"
+        " VALUES ('probe', FALSE, $1, 'ancient', now() - interval '1 hour')",
+        d,
+    )
+    out = await crud.recent_device_failures(pool, since_seconds=300)
+    assert d not in out
+
+
+async def test_recent_device_failures_skips_non_device_actions(pool: asyncpg.Pool) -> None:
+    # Login failures shouldn't pollute per-device error tooltips.
+    await crud.log_audit(
+        pool,
+        _entry(action=AuditAction.LOGIN, device_id=None, success=False, error_message="bad pw"),
+    )
+    assert await crud.recent_device_failures(pool) == {}
+
+
+async def test_devices_with_success_history_counts_probes(pool: asyncpg.Pool) -> None:
+    # Probe events are written by the async reachability probe on device save.
+    # Using raw SQL here because AuditAction.PROBE is introduced in the same
+    # change set as this helper and the enum may not yet list it in tests that
+    # only exercise the DB layer.
+    d_ok = await _make_device(pool, "rt-ok")
+    d_fail = await _make_device(pool, "rt-fail")
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id) VALUES ('probe', TRUE, $1)",
+        d_ok,
+    )
+    await pool.execute(
+        "INSERT INTO audit_log (action, success, device_id) VALUES ('probe', FALSE, $1)",
+        d_fail,
+    )
+    assert await crud.devices_with_success_history(pool) == {d_ok}

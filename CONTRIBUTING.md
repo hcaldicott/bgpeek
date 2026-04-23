@@ -26,13 +26,13 @@ ruff format --check src/ tests/
 
 ```bash
 # Start dependencies (PostgreSQL + Redis)
-docker compose -f docker-compose.yml up -d db redis
+docker compose up -d postgres redis
 
 # Run the app in debug mode
 BGPEEK_DEBUG=true BGPEEK_DATABASE_URL=postgresql://bgpeek:bgpeek@localhost:5432/bgpeek bgpeek
 ```
 
-The app will be available at `http://localhost:8080` with auto-reload enabled.
+The app will be available at `http://localhost:8000` with auto-reload enabled.
 
 ## Code style
 

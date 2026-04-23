@@ -7,12 +7,13 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
+import pytest
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
 from bgpeek.core.oidc import extract_role_from_token, get_oidc_client, setup_oidc
 from bgpeek.db import users as crud
-from bgpeek.models.user import User, UserRole
+from bgpeek.models.user import User, UserCreateLocal, UserRole
 
 _COOKIE_NAME = "bgpeek_token"
 _NOW = datetime.now(tz=UTC)
@@ -333,3 +334,28 @@ async def test_upsert_oidc_user_updates_existing(pool: asyncpg.Pool) -> None:
     assert second.email == "new@example.com"
     assert second.role == UserRole.NOC
     assert second.last_login_at is not None
+
+
+async def test_upsert_oidc_user_rejects_cross_provider_collision(pool: asyncpg.Pool) -> None:
+    """A local user's row must not be mutated by an OIDC upsert of the same username."""
+    local = await crud.create_local_user(
+        pool,
+        UserCreateLocal(
+            username="alice",
+            email="alice@local",
+            password="local-pw-12345",  # noqa: S106
+            role=UserRole.PUBLIC,
+        ),
+    )
+    assert local.auth_provider == "local"
+
+    with pytest.raises(crud.IdentityProviderConflictError) as excinfo:
+        await crud.upsert_oidc_user(pool, "alice", "alice@idp", UserRole.ADMIN, "sub-999")
+    assert excinfo.value.username == "alice"
+    assert excinfo.value.existing_provider == "local"
+    assert excinfo.value.attempted_provider == "oidc"
+
+    reloaded = await crud.get_user_by_username(pool, "alice")
+    assert reloaded is not None
+    assert reloaded.auth_provider == "local"
+    assert reloaded.role == UserRole.PUBLIC

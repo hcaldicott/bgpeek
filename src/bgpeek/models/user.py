@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from bgpeek.models._common import TrimmedOptStr, TrimmedStr
+
 
 class UserRole(StrEnum):
     """User privilege levels."""
@@ -20,16 +22,25 @@ class UserRole(StrEnum):
 class UserBase(BaseModel):
     """Fields shared by create / read variants."""
 
-    username: str = Field(min_length=1, max_length=255)
-    email: str | None = None
+    username: TrimmedStr = Field(min_length=1, max_length=255)
+    email: TrimmedOptStr = None
     role: UserRole = UserRole.PUBLIC
     enabled: bool = True
 
 
 class UserCreate(UserBase):
-    """Payload for creating a new API-key user."""
+    """Payload for creating a new API-key user.
 
-    api_key: str = Field(min_length=32, max_length=128)
+    ``api_key`` is optional: when omitted the server generates a cryptographically
+    strong value and returns it once in the 201 response (show-once pattern).
+    Client-supplied keys are still accepted for backward compatibility but will
+    be rejected in v1.5.0 — migrate any automation to let the server generate
+    and read the ``api_key`` field from the response.
+    """
+
+    # `api_key` is a shared secret — keep exactly what the caller sent, even
+    # if it has incidental whitespace. Length constraint already blocks "   ".
+    api_key: str | None = Field(default=None, min_length=32, max_length=128)
 
 
 class UserUpdate(BaseModel):
@@ -37,8 +48,8 @@ class UserUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    username: str | None = Field(default=None, min_length=1, max_length=255)
-    email: str | None = None
+    username: TrimmedOptStr = Field(default=None, min_length=1, max_length=255)
+    email: TrimmedOptStr = None
     role: UserRole | None = None
     enabled: bool | None = None
 
@@ -48,9 +59,11 @@ class UserCreateLocal(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    username: str = Field(min_length=1, max_length=255)
+    username: TrimmedStr = Field(min_length=1, max_length=255)
+    # Passwords are preserved verbatim; silently stripping whitespace could
+    # desynchronise the stored hash from what the user types at the login form.
     password: str = Field(min_length=8, max_length=128)
-    email: str | None = None
+    email: TrimmedOptStr = None
     role: UserRole = UserRole.PUBLIC
 
 
@@ -59,8 +72,8 @@ class LoginRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    username: str
-    password: str
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
 
 
 class User(UserBase):
@@ -100,6 +113,16 @@ class UserAdmin(BaseModel):
     enabled: bool
     created_at: datetime
     last_login_at: datetime | None = None
+
+
+class UserCreated(UserAdmin):
+    """201 response for ``POST /api/users`` — carries the one-shot API key.
+
+    ``api_key`` is the plaintext token. It is returned exactly once; subsequent
+    reads of the user never expose it again (only the SHA-256 hash is stored).
+    """
+
+    api_key: str
 
 
 class LoginResponse(BaseModel):

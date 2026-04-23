@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ipaddress import IPv4Address
+from ipaddress import IPv4Address, IPv6Address
 
 import asyncpg
 import pytest
@@ -96,6 +96,40 @@ async def test_update_empty_payload_returns_unchanged(pool: asyncpg.Pool) -> Non
 
 async def test_update_missing_returns_none(pool: asyncpg.Pool) -> None:
     assert await crud.update_device(pool, 9999, DeviceUpdate(enabled=False)) is None
+
+
+async def test_create_with_source_ips(pool: asyncpg.Pool) -> None:
+    """Create must bind source4/source6 to TEXT columns without an asyncpg DataError."""
+    payload = _payload(
+        source4=IPv4Address("185.66.84.4"),
+        source6=IPv6Address("2001:db8::1"),
+    )
+    created = await crud.create_device(pool, payload)
+    assert created.source4 == IPv4Address("185.66.84.4")
+    assert created.source6 == IPv6Address("2001:db8::1")
+
+
+async def test_update_with_source_ips(pool: asyncpg.Pool) -> None:
+    """Partial update with source4/source6 must not raise asyncpg.DataError.
+
+    Regression: Pydantic held these as IPv4Address / IPv6Address objects but
+    the columns are TEXT, so a raw dump bound the wrong type and produced a
+    500 on every admin device-save form submission with a source IP set.
+    """
+    created = await crud.create_device(pool, _payload())
+    updated = await crud.update_device(
+        pool,
+        created.id,
+        DeviceUpdate(
+            source4=IPv4Address("185.66.84.4"),
+            source6=IPv6Address("2001:db8::1"),
+            port=23,
+        ),
+    )
+    assert updated is not None
+    assert updated.source4 == IPv4Address("185.66.84.4")
+    assert updated.source6 == IPv6Address("2001:db8::1")
+    assert updated.port == 23
 
 
 async def test_delete(pool: asyncpg.Pool) -> None:

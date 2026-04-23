@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +35,18 @@ _NOC = User(
     enabled=True,
     created_at=_NOW,
 )
+
+
+def _extract_csrf_token(html: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match is not None
+    return match.group(1)
+
+
+def _csrf_token_from_page(client: TestClient, path: str, headers: dict[str, str]) -> str:
+    response = client.get(path, headers=headers)
+    assert response.status_code == 200
+    return _extract_csrf_token(response.text)
 
 
 # Every admin route, regardless of method, must reject non-admin users.
@@ -266,6 +279,14 @@ def test_devices_list_renders() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -276,6 +297,56 @@ def test_devices_list_renders() -> None:
     assert "juniper_junos" in response.text
     assert "/admin/devices/new" in response.text
     assert "/admin/devices/1/edit" in response.text
+
+
+def test_devices_list_shows_recent_failure_error_as_tooltip() -> None:
+    """When `recent_device_failures` has a row for a device, the badge's
+    `title=` attribute surfaces the concrete error message so operators can
+    see `ssh connect timeout` on hover without cracking open the server logs.
+    """
+    from datetime import UTC, datetime
+
+    from bgpeek.models.device import Device
+
+    device = Device.model_validate(_DEVICE_ROW)
+    recent = {device.id: ("ssh connect timeout", datetime.now(UTC))}
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.device_crud.list_devices",
+            new=AsyncMock(return_value=[device]),
+        ),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "bgpeek.ui.admin.cb_failure_counts",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.device_query_stats",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value={device.id}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value=recent),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'title="ssh connect timeout"' in response.text
 
 
 def test_devices_list_renders_circuit_breaker_status() -> None:
@@ -304,6 +375,14 @@ def test_devices_list_renders_circuit_breaker_status() -> None:
         ),
         patch(
             "bgpeek.ui.admin.audit_crud.device_query_stats",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
             new=AsyncMock(return_value={}),
         ),
     ):
@@ -340,6 +419,14 @@ def test_devices_list_renders_circuit_breaker_open() -> None:
         ),
         patch(
             "bgpeek.ui.admin.audit_crud.device_query_stats",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
             new=AsyncMock(return_value={}),
         ),
     ):
@@ -380,6 +467,14 @@ def test_devices_list_renders_query_usage() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={1: (last_seen, 42)}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -416,6 +511,14 @@ def test_devices_list_renders_never_queried() -> None:
             "bgpeek.ui.admin.audit_crud.device_query_stats",
             new=AsyncMock(return_value={}),
         ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
+            new=AsyncMock(return_value={}),
+        ),
     ):
         client = TestClient(app)
         response = client.get("/admin/devices", headers={"X-API-Key": "any"})
@@ -449,6 +552,14 @@ def test_devices_list_has_query_link() -> None:
         ),
         patch(
             "bgpeek.ui.admin.audit_crud.device_query_stats",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.devices_with_success_history",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "bgpeek.ui.admin.audit_crud.recent_device_failures",
             new=AsyncMock(return_value={}),
         ),
     ):
@@ -546,7 +657,10 @@ def test_devices_new_form_renders() -> None:
 
 
 def test_devices_create_redirects_and_calls_crud() -> None:
-    create_mock = AsyncMock()
+    from bgpeek.models.device import Device
+
+    created_device = Device.model_validate(_DEVICE_ROW)
+    create_mock = AsyncMock(return_value=created_device)
     with (
         patch(
             "bgpeek.core.auth.user_crud.get_user_by_api_key",
@@ -554,13 +668,22 @@ def test_devices_create_redirects_and_calls_crud() -> None:
         ),
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("bgpeek.ui.admin.device_crud.create_device", new=create_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/devices/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/devices",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "rt1",
                 "address": "192.0.2.1",
                 "platform": "juniper_junos",
@@ -595,10 +718,14 @@ def test_devices_create_invalid_address_rerenders_form() -> None:
         patch("bgpeek.ui.admin.device_crud.create_device", new=create_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/devices/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/devices",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "rt1",
                 "address": "not-an-ip",
                 "platform": "juniper_junos",
@@ -660,8 +787,10 @@ def test_devices_edit_form_shows_test_ssh_when_cred_set() -> None:
 
     assert response.status_code == 200
     assert "test-ssh-btn" in response.text
-    # The fetch target wires in the credential and device IDs
-    assert "bgpeekTestSSH(7, 1)" in response.text
+    # The fetch target wires in the credential and device IDs via data-* attributes
+    # (the external admin-devices-form.js reads them on click).
+    assert 'data-cred-id="7"' in response.text
+    assert 'data-device-id="1"' in response.text
 
 
 def test_devices_edit_form_shows_hint_without_credential() -> None:
@@ -690,6 +819,56 @@ def test_devices_edit_form_shows_hint_without_credential() -> None:
     assert response.status_code == 200
     assert "test-ssh-btn" not in response.text
     assert "Assign an SSH credential" in response.text
+
+
+def test_devices_new_form_save_button_has_loading_attribute() -> None:
+    """Save buttons in admin forms opt into the disable-on-submit loader via
+    `data-loading-text`. Delete buttons (inline `text-xs`) deliberately skip
+    the attribute — swapping their label to "Saving…" would shift layout."""
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices/new", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    assert 'data-loading-text="Saving…"' in response.text
+    # The loader lives in an external JS file referenced from the admin base
+    # template (CSP-safe — `script-src 'self'` blocks inline blocks).
+    assert "/static/js/admin-base.js" in response.text
+
+
+def test_devices_new_form_includes_junos_source_warning() -> None:
+    """Warning block + toggle JS ship with every device form; visibility is client-side."""
+    with (
+        patch(
+            "bgpeek.core.auth.user_crud.get_user_by_api_key",
+            new=AsyncMock(return_value=_ADMIN),
+        ),
+        patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        client = TestClient(app)
+        response = client.get("/admin/devices/new", headers={"X-API-Key": "any"})
+
+    assert response.status_code == 200
+    # Warning element ships with `hidden` attr — JS flips it when platform=junos + no source.
+    assert 'id="junos-source-warning"' in response.text
+    assert "juniper_junos" in response.text  # platform literal referenced by the toggle
+    assert "explicit source IP" in response.text
 
 
 def test_devices_edit_form_prefilled() -> None:
@@ -737,16 +916,25 @@ def test_devices_delete_redirects_and_calls_crud() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch(
+            "bgpeek.ui.admin.credential_crud.list_credentials",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
             "bgpeek.ui.admin.device_crud.get_device_by_id",
             new=AsyncMock(return_value=device),
         ),
         patch("bgpeek.ui.admin.device_crud.delete_device", new=delete_mock),
         patch("bgpeek.ui.admin.invalidate_device", new=AsyncMock()),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/devices/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/devices/1/delete",
             headers={"X-API-Key": "any"},
+            data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
 
@@ -854,10 +1042,14 @@ def test_credentials_create_key_only() -> None:
         patch("bgpeek.ui.admin.credential_crud.create_credential", new=create_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/credentials/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/credentials",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "default",
                 "auth_type": "key",
                 "username": "lg-user",
@@ -885,10 +1077,14 @@ def test_credentials_create_password_missing_rerenders() -> None:
         patch("bgpeek.ui.admin.credential_crud.create_credential", new=create_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/credentials/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/credentials",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "cred1",
                 "auth_type": "password",
                 "username": "u",
@@ -956,10 +1152,14 @@ def test_credentials_update_empty_password_keeps_existing() -> None:
         patch("bgpeek.ui.admin.credential_crud.update_credential", new=update_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/credentials/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/credentials/1",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "default",
                 "auth_type": "key",
                 "username": "lg-user",
@@ -990,9 +1190,13 @@ def test_credentials_delete_in_use_returns_409() -> None:
         ),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/credentials/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/credentials/1/delete",
             headers={"X-API-Key": "any"},
+            data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
 
@@ -1059,12 +1263,16 @@ def test_users_create_local_redirects() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
+        new_response = client.get("/admin/users/new", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(new_response.text)
         response = client.post(
             "/admin/users",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "auth_type": "local",
                 "username": "alice",
                 "email": "alice@example.com",
@@ -1093,10 +1301,13 @@ def test_users_create_local_short_password_rerenders() -> None:
         patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
     ):
         client = TestClient(app)
+        new_response = client.get("/admin/users/new", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(new_response.text)
         response = client.post(
             "/admin/users",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "auth_type": "local",
                 "username": "alice",
                 "role": "public",
@@ -1111,7 +1322,10 @@ def test_users_create_local_short_password_rerenders() -> None:
 
 
 def test_users_create_api_key_shows_key_page() -> None:
-    create_mock = AsyncMock()
+    # CRUD now returns (user, plaintext_key); mock has to surface that shape.
+    fake_user = MagicMock()
+    fake_user.username = "bot-user"
+    create_mock = AsyncMock(return_value=(fake_user, "generated-plaintext-key"))
     with (
         patch(
             "bgpeek.core.auth.user_crud.get_user_by_api_key",
@@ -1120,12 +1334,16 @@ def test_users_create_api_key_shows_key_page() -> None:
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.user_crud.create_user", new=create_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
+        new_response = client.get("/admin/users/new", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(new_response.text)
         response = client.post(
             "/admin/users",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "auth_type": "api_key",
                 "username": "bot-user",
                 "role": "noc",
@@ -1140,7 +1358,8 @@ def test_users_create_api_key_shows_key_page() -> None:
     create_mock.assert_awaited_once()
     payload = create_mock.await_args.args[1]
     assert payload.username == "bot-user"
-    assert payload.api_key  # a key was generated
+    # UI path asks the server to generate (api_key=None).
+    assert payload.api_key is None
 
 
 def test_users_create_invalid_role_rerenders() -> None:
@@ -1154,10 +1373,13 @@ def test_users_create_invalid_role_rerenders() -> None:
         patch("bgpeek.ui.admin.user_crud.create_local_user", new=create_local_mock),
     ):
         client = TestClient(app)
+        new_response = client.get("/admin/users/new", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(new_response.text)
         response = client.post(
             "/admin/users",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "auth_type": "local",
                 "username": "alice",
                 "role": "super-admin",  # not in _ROLE_CHOICES
@@ -1204,13 +1426,18 @@ def test_users_update_redirects() -> None:
         ),
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.get_user_by_id", new=AsyncMock(return_value=_NOC)),
         patch("bgpeek.ui.admin.user_crud.update_user", new=update_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
+        edit_response = client.get("/admin/users/2/edit", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(edit_response.text)
         response = client.post(
             "/admin/users/2",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "role": "public",
                 "email": "noc@example.com",
                 "enabled": "1",
@@ -1234,12 +1461,17 @@ def test_users_delete_self_returns_400() -> None:
             new=AsyncMock(return_value=_ADMIN),
         ),
         patch("bgpeek.core.auth.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch("bgpeek.ui.admin.user_crud.list_users", new=AsyncMock(return_value=[_ADMIN, _NOC])),
         patch("bgpeek.ui.admin.user_crud.delete_user", new=delete_mock),
     ):
         client = TestClient(app)
+        users_response = client.get("/admin/users", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(users_response.text)
         response = client.post(
             "/admin/users/1/delete",  # _ADMIN.id == 1
             headers={"X-API-Key": "any"},
+            data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
 
@@ -1256,12 +1488,21 @@ def test_users_delete_other_redirects() -> None:
         ),
         patch("bgpeek.core.auth.get_pool", return_value=object()),
         patch("bgpeek.ui.admin.get_pool", return_value=object()),
+        patch(
+            "bgpeek.ui.admin.user_crud.get_user_by_id",
+            new=AsyncMock(return_value=_NOC),
+        ),
+        patch("bgpeek.ui.admin.user_crud.list_users", new=AsyncMock(return_value=[_ADMIN, _NOC])),
         patch("bgpeek.ui.admin.user_crud.delete_user", new=delete_mock),
+        patch("bgpeek.ui.admin.log_audit", new=AsyncMock(return_value=None)),
     ):
         client = TestClient(app)
+        users_response = client.get("/admin/users", headers={"X-API-Key": "any"})
+        csrf_token = _extract_csrf_token(users_response.text)
         response = client.post(
             "/admin/users/2/delete",  # _NOC.id == 2
             headers={"X-API-Key": "any"},
+            data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
 
@@ -1345,10 +1586,14 @@ def test_labels_create_redirects_and_refreshes_cache() -> None:
         patch("bgpeek.ui.admin.refresh_label_cache", new=refresh_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/community-labels/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/community-labels",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "pattern": "65000:100",
                 "match_type": "exact",
                 "label": "Customer traffic",
@@ -1379,10 +1624,14 @@ def test_labels_create_no_color_ok() -> None:
         patch("bgpeek.ui.admin.refresh_label_cache", new=AsyncMock()),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/community-labels/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/community-labels",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "pattern": "65000:",
                 "match_type": "prefix",
                 "label": "Customer range",
@@ -1407,10 +1656,14 @@ def test_labels_create_invalid_color_rerenders() -> None:
         patch("bgpeek.ui.admin.label_crud.create_label", new=create_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/community-labels/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/community-labels",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "pattern": "65000:100",
                 "match_type": "exact",
                 "label": "Test",
@@ -1464,9 +1717,13 @@ def test_labels_delete_redirects() -> None:
         patch("bgpeek.ui.admin.refresh_label_cache", new=AsyncMock()),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/community-labels/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/community-labels/1/delete",
             headers={"X-API-Key": "any"},
+            data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
 
@@ -1546,10 +1803,14 @@ def test_webhooks_create_requires_at_least_one_event() -> None:
         patch("bgpeek.ui.admin.webhook_crud.create_webhook", new=create_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/webhooks/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/webhooks",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "test",
                 "url": "https://example.com/hook",
                 "enabled": "1",
@@ -1574,10 +1835,14 @@ def test_webhooks_create_redirects() -> None:
         patch("bgpeek.ui.admin.webhook_crud.create_webhook", new=create_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/webhooks/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/webhooks",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "slack-noc",
                 "url": "https://example.com/hook",
                 "events": ["device_create", "login"],
@@ -1671,10 +1936,14 @@ def test_webhooks_update_empty_secret_keeps_existing() -> None:
         patch("bgpeek.ui.admin.webhook_crud.update_webhook", new=update_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/webhooks/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/webhooks/1",
             headers={"X-API-Key": "any"},
             data={
+                "csrf_token": csrf_token,
                 "name": "slack-noc",
                 "url": "https://example.com/hook",
                 "events": ["login"],
@@ -1702,9 +1971,13 @@ def test_webhooks_delete_redirects() -> None:
         patch("bgpeek.ui.admin.webhook_crud.delete_webhook", new=delete_mock),
     ):
         client = TestClient(app)
+        csrf_token = _csrf_token_from_page(
+            client, "/admin/webhooks/new", headers={"X-API-Key": "any"}
+        )
         response = client.post(
             "/admin/webhooks/1/delete",
             headers={"X-API-Key": "any"},
+            data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
 

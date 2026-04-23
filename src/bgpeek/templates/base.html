@@ -7,16 +7,10 @@
     <link rel="icon" href="{{ brand.favicon_path }}">
     <link rel="stylesheet" href="/static/css/tailwind.css">
     <script src="/static/js/htmx.min.js"></script>
-    <script>
-      /* Apply dark mode before paint to prevent flash. */
-      (function () {
-        var k = document.documentElement.getAttribute("data-theme-storage-key") || "bgpeek-theme";
-        var s = localStorage.getItem(k);
-        if (s === "dark" || (!s && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-          document.documentElement.classList.add("dark");
-        }
-      })();
-    </script>
+    {# Flash-prevention: loaded synchronously so the body never paints with
+       the wrong theme. Lives in a static file instead of an inline <script>
+       because the page-wide CSP is `script-src 'self'` (no `'unsafe-inline'`). #}
+    <script src="/static/js/theme-init.js"></script>
     <style>
       /* Minimal custom styles — scrollbar and htmx indicator. */
       .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
@@ -37,5 +31,6 @@
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/clipboard.js"></script>
     <script src="/static/js/diff.js"></script>
+    <script src="/static/js/ui-handlers.js"></script>
 </body>
 </html>

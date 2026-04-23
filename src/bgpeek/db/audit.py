@@ -5,8 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 
 import asyncpg
+import structlog
 
+from bgpeek.config import settings
 from bgpeek.models.audit import AuditAction, AuditEntry, AuditEntryCreate
+
+# Dedicated logger name so downstream shippers can filter by `logger:audit`
+# (or the equivalent) without regex-matching event names.
+_audit_log = structlog.get_logger("audit")
 
 
 async def log_audit(pool: asyncpg.Pool, entry: AuditEntryCreate) -> AuditEntry:
@@ -37,7 +43,26 @@ async def log_audit(pool: asyncpg.Pool, entry: AuditEntryCreate) -> AuditEntry:
         entry.response_bytes,
     )
     assert row is not None
-    return AuditEntry.model_validate(dict(row))
+    persisted = AuditEntry.model_validate(dict(row))
+
+    if settings.audit_stdout:
+        # Mirror the audit row to the standard log stream so external shippers
+        # (Loki, VictoriaLogs, …) can index audit events alongside app logs.
+        # The PG row remains the source of truth for compliance.
+        _audit_log.info(
+            "audit",
+            action=entry.action.value,
+            success=entry.success,
+            username=entry.username,
+            user_role=entry.user_role,
+            source_ip=str(entry.source_ip) if entry.source_ip is not None else None,
+            device=entry.device_name,
+            query_type=entry.query_type,
+            target=entry.query_target,
+            runtime_ms=entry.runtime_ms,
+        )
+
+    return persisted
 
 
 def _build_filter(
@@ -132,6 +157,62 @@ async def device_query_stats(
         since_days,
     )
     return {int(r["device_id"]): (r["last_query"], int(r["query_count"])) for r in rows}
+
+
+async def devices_with_success_history(pool: asyncpg.Pool) -> set[int]:
+    """Return device_ids that have at least one successful query or probe on record.
+
+    Used by the admin devices list to distinguish devices that have never been
+    talked to successfully (show as "Unknown") from devices that have been
+    reached at least once (eligible for "Healthy"). A never-queried device
+    cannot honestly be rendered as Healthy.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT device_id
+        FROM audit_log
+        WHERE device_id IS NOT NULL
+          AND success IS TRUE
+          AND action IN ('query', 'probe')
+        """
+    )
+    return {int(r["device_id"]) for r in rows}
+
+
+async def recent_device_failures(
+    pool: asyncpg.Pool, since_seconds: int = 300
+) -> dict[int, tuple[str, datetime]]:
+    """Return the most-recent failed query/probe per device within the last
+    ``since_seconds`` seconds, only if no *later* successful session exists
+    for that device (so we don't light up red for a device that already
+    recovered).
+
+    Shape: ``{device_id: (error_message, timestamp)}``. Used by the admin
+    devices-list badge to show the concrete SSH error (e.g. "ssh connect
+    timeout") as a tooltip next to the health indicator, so an operator
+    doesn't have to cross-reference the server logs to understand why a
+    device flipped off green.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT ON (device_id)
+            device_id,
+            success,
+            error_message,
+            timestamp
+        FROM audit_log
+        WHERE device_id IS NOT NULL
+          AND action IN ('query', 'probe')
+          AND timestamp >= now() - make_interval(secs => $1)
+        ORDER BY device_id, timestamp DESC
+        """,
+        since_seconds,
+    )
+    return {
+        int(r["device_id"]): (r["error_message"] or "", r["timestamp"])
+        for r in rows
+        if r["success"] is False and r["error_message"]
+    }
 
 
 async def cleanup_old_entries(pool: asyncpg.Pool, ttl_days: int) -> int:

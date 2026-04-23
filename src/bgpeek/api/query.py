@@ -33,7 +33,7 @@ from bgpeek.models.query import (
     QueryType,
     StoredResult,
 )
-from bgpeek.models.user import User
+from bgpeek.models.user import User, UserRole
 
 log = structlog.get_logger(__name__)
 
@@ -342,6 +342,27 @@ async def htmx_multi_query(
 # ---------------------------------------------------------------------------
 
 
+def _may_view_stored_result(stored: StoredResult, caller: User | None) -> bool:
+    """Return True iff ``caller`` is allowed to see this stored result.
+
+    ADMIN/NOC see everything. Everyone else only sees results their own
+    user_id produced AND only when the underlying device is not restricted.
+    Missing ownership metadata on the row is treated as privileged-only to
+    avoid leaking pre-migration entries.
+    """
+    if caller is not None and caller.role in (UserRole.ADMIN, UserRole.NOC):
+        return True
+    # Non-privileged callers never see results against restricted devices —
+    # even if they were the original author — because the restriction reflects
+    # the device's current state, not its state at query time.
+    if stored.device_restricted:
+        return False
+    owner_id = stored.user_id
+    if owner_id is None or owner_id == 0:
+        return False
+    return caller is not None and caller.id == owner_id
+
+
 @router.get("/api/results/{result_id}", response_model=StoredResult)
 async def api_get_result(
     result_id: uuid.UUID,
@@ -349,7 +370,9 @@ async def api_get_result(
 ) -> StoredResult:
     """Return a stored query result as JSON."""
     stored = await get_result(get_pool(), result_id)
-    if stored is None:
+    if stored is None or not _may_view_stored_result(stored, caller):
+        # 404 on both "not found" and "not yours" so callers can't enumerate
+        # other users' permalink UUIDs by status code.
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Result not found or expired.")
     role = caller.role.value if caller else None
     return filter_stored_result(stored, role)
@@ -363,6 +386,8 @@ async def result_page(
 ) -> HTMLResponse:
     """Render a standalone HTML page for a shared result."""
     stored = await get_result(get_pool(), result_id)
+    if stored is not None and not _may_view_stored_result(stored, user):
+        stored = None
     role = user.role.value if user else None
     if stored is not None:
         stored = filter_stored_result(stored, role)
