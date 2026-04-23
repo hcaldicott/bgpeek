@@ -542,6 +542,15 @@ def run() -> None:
         port=settings.port,
         workers=settings.workers,
         log_config=None,
+        # `server: uvicorn` is injected by uvicorn's HTTP protocol layer AFTER
+        # ASGI middleware runs, so the strip in `SecurityHeadersMiddleware`
+        # can't reach it at runtime (TestClient bypasses the protocol layer,
+        # which is why the middleware test passes but the real response still
+        # advertises uvicorn — reported 2026-04-23). Disabling here stops the
+        # header from being written in the first place. The middleware strip
+        # stays as belt-and-suspenders for alt transports (gunicorn wrapper,
+        # reverse proxies that re-inject).
+        server_header=False,
     )
 
 

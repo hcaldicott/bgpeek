@@ -92,3 +92,29 @@ class TestBaselineSecurityHeaders:
         policy = resp.headers.get("permissions-policy", "")
         for directive in ("camera=()", "microphone=()", "geolocation=()"):
             assert directive in policy
+
+
+class TestUvicornServerHeaderDisabled:
+    """The `server: uvicorn` header is injected by uvicorn's HTTP protocol
+    layer AFTER ASGI middleware runs, so stripping it in
+    `SecurityHeadersMiddleware` alone is not enough in production (TestClient
+    bypasses the protocol layer, so the middleware test passes but the real
+    response still carries the header — reported 2026-04-23). The fix lives
+    on the `uvicorn.run(..., server_header=False)` call. This contract test
+    asserts that call site stays intact.
+    """
+
+    def test_run_passes_server_header_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from unittest.mock import MagicMock
+
+        import bgpeek.main as main_mod
+
+        fake_uvicorn = MagicMock()
+        # uvicorn is imported inside `run()`, so inject via sys.modules.
+        monkeypatch.setitem(__import__("sys").modules, "uvicorn", fake_uvicorn)
+        main_mod.run()
+        fake_uvicorn.run.assert_called_once()
+        kwargs = fake_uvicorn.run.call_args.kwargs
+        assert kwargs.get("server_header") is False, (
+            f"server_header must be False in uvicorn.run(), got {kwargs.get('server_header')!r}"
+        )
