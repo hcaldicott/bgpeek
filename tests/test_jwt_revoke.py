@@ -17,9 +17,7 @@ class TestRevokeNoRedis:
         # Must not raise — operator would be locked out of logout otherwise.
         await jwt_revoke.revoke("abc123", ttl_seconds=60)
 
-    async def test_is_revoked_no_redis_returns_false(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_is_revoked_no_redis_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(jwt_revoke, "_get_redis", AsyncMock(return_value=None))
         # Fail-open: a Redis outage must not 401 every authenticated request.
         assert await jwt_revoke.is_revoked("abc123") is False
@@ -43,18 +41,14 @@ class TestRevokeHappyPath:
         await jwt_revoke.revoke("abc", ttl_seconds=-1)
         redis.setex.assert_not_awaited()
 
-    async def test_is_revoked_true_when_key_present(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_is_revoked_true_when_key_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis = MagicMock()
         redis.exists = AsyncMock(return_value=1)
         monkeypatch.setattr(jwt_revoke, "_get_redis", AsyncMock(return_value=redis))
         assert await jwt_revoke.is_revoked("abc123") is True
         redis.exists.assert_awaited_once_with("bgpeek:jwt_revoked:abc123")
 
-    async def test_is_revoked_false_when_key_missing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_is_revoked_false_when_key_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis = MagicMock()
         redis.exists = AsyncMock(return_value=0)
         monkeypatch.setattr(jwt_revoke, "_get_redis", AsyncMock(return_value=redis))

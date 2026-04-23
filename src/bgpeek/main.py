@@ -38,6 +38,7 @@ from bgpeek.core.webhooks import shutdown as shutdown_webhooks
 from bgpeek.db import devices as device_crud
 from bgpeek.db.pool import close_pool, get_pool, init_pool
 from bgpeek.db.results import list_results
+from bgpeek.models.query import StoredResult
 from bgpeek.models.user import User, UserRole
 from bgpeek.ui import admin as admin_ui
 
@@ -527,7 +528,7 @@ async def history(
         if settings.access_mode == "guest":
             user = guest_user()
     if user is None or user.id == 0:
-        results: list = []
+        results: list[StoredResult] = []
     else:
         try:
             results = await list_results(

@@ -476,7 +476,10 @@ async def create_user(
         ),
     )
     return UserCreated.model_validate(
-        {**UserAdmin.model_validate(created, from_attributes=True).model_dump(), "api_key": plaintext_key}
+        {
+            **UserAdmin.model_validate(created, from_attributes=True).model_dump(),
+            "api_key": plaintext_key,
+        }
     )
 
 
